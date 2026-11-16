@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Cadence</string>
+    <string name="tagline">Shift Reporting &amp; Fair Scheduling</string>
+    <string name="sign_in_title">Workforce Clarity, Built on Fairness</string>
+    <string name="sign_in_subtitle">Verified shift reporting, manager approvals with one-click Accept All, and fairness-balanced overlap scheduling.</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="sign_out">Sign out</string>
+    <string name="loading_workspace">Loading Cadence workspace…</string>
+    <string name="nav_overview">Overview</string>
+    <string name="nav_schedule">Schedule</string>
+    <string name="nav_reports">Reports</string>
+    <string name="nav_approvals">Approvals</string>
+    <string name="nav_timeoff">Time Off</string>
+    <string name="nav_alerts">Alerts</string>
+    <string name="nav_team">Team</string>
+    <string name="profile_settings">Profile &amp; Preferences</string>
+    <string name="enable_push_alerts">Enable Push Alerts</string>
+    <string name="accept_all_button">Accept All</string>
+    <string name="close">Close</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save Changes</string>
+    <string name="submit">Submit</string>
+</resources>

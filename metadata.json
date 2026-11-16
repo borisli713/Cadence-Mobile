@@ -1,5 +1,5 @@
 {
-  "name": "Cadence — Shift Reporting & Fair Scheduling",
+  "name": "Cadence",
   "description": "Verified shift reporting system with manager schedule change approvals, one-click Accept All, push notifications, and fairness-based overlap arrangement.",
   "requestFramePermissions": [],
   "majorCapabilities": [

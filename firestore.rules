@@ -288,14 +288,14 @@ service cloud.firestore {
       allow create: if isVerifiedUser() && isValidId(userId) && isOwner(userId)
         && isValidUser(incoming())
         && incoming().uid == request.auth.uid
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (incoming().role == 'staff' || isBootstrappedAdmin());
       allow update: if isVerifiedUser() && isValidId(userId)
         && isValidUser(incoming())
         && incoming().uid == existing().uid
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager() && incoming().diff(existing()).affectedKeys().hasOnly([
             'role', 'department', 'weeklyHoursTarget', 'displayName', 'pushNotificationsEnabled', 'updatedAt'
@@ -314,7 +314,7 @@ service cloud.firestore {
       allow list: if isVerifiedUser() && resource.data.role in ['staff', 'manager'];
       allow create: if isVerifiedUser() && isValidId(userId)
         && isValidStaffDirectory(incoming())
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           isManager()
           || (isOwner(userId)
@@ -327,7 +327,7 @@ service cloud.firestore {
       allow update: if isVerifiedUser() && isValidId(userId)
         && isValidStaffDirectory(incoming())
         && incoming().uid == existing().uid
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager() && incoming().diff(existing()).affectedKeys().hasOnly([
             'displayName', 'role', 'department', 'totalHoursWorked',
@@ -350,7 +350,7 @@ service cloud.firestore {
         && isValidManagerRecord(incoming())
         && incoming().uid == userId
         && incoming().grantedBy == request.auth.uid
-        && incoming().createdAt == request.time;
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time;
       allow update: if false;
       allow delete: if isVerifiedUser() && isValidId(userId) && isManager();
     }
@@ -365,15 +365,15 @@ service cloud.firestore {
         && isValidShift(incoming())
         && incoming().id == shiftId
         && incoming().createdBy == request.auth.uid
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (isManager() || incoming().assignedUid == request.auth.uid);
       allow update: if isVerifiedUser() && isValidId(shiftId)
         && isValidShift(incoming())
         && incoming().id == existing().id
         && incoming().createdBy == existing().createdBy
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager() && incoming().diff(existing()).affectedKeys().hasOnly([
             'title', 'department', 'date', 'startTime', 'endTime',
@@ -400,8 +400,8 @@ service cloud.firestore {
         && (incoming().requesterUid == request.auth.uid || isManager())
         && incoming().status == 'pending'
         && incoming().reviewedByUid == ''
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && exists(/databases/$(database)/documents/shifts/$(incoming().shiftId));
       allow update: if isVerifiedUser() && isValidId(changeId)
         && isValidScheduleChange(incoming())
@@ -409,7 +409,7 @@ service cloud.firestore {
         && incoming().requesterUid == existing().requesterUid
         && incoming().shiftId == existing().shiftId
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager()
             && existing().status == 'pending'
@@ -443,14 +443,14 @@ service cloud.firestore {
         && incoming().staffUid == request.auth.uid
         && incoming().status == 'submitted'
         && incoming().verifiedByUid == ''
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
       allow update: if isVerifiedUser() && isValidId(reportId)
         && isValidShiftReport(incoming())
         && incoming().id == existing().id
         && incoming().staffUid == existing().staffUid
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager()
             && incoming().status in ['verified', 'flagged']
@@ -480,8 +480,8 @@ service cloud.firestore {
         && incoming().id == notificationId
         && incoming().actorUid == request.auth.uid
         && incoming().isRead == false
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (isManager() || incoming().recipientUid == request.auth.uid);
       allow update: if isVerifiedUser() && isValidId(notificationId)
         && isValidNotification(incoming())
@@ -489,7 +489,7 @@ service cloud.firestore {
         && incoming().recipientUid == existing().recipientUid
         && incoming().actorUid == existing().actorUid
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager() && incoming().diff(existing()).affectedKeys().hasOnly([
             'isRead', 'updatedAt'
@@ -514,14 +514,14 @@ service cloud.firestore {
         && incoming().id == submissionId
         && (incoming().staffUid == request.auth.uid || isManager())
         && incoming().status == 'submitted'
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
       allow update: if isVerifiedUser() && isValidId(submissionId)
         && isValidShiftSubmission(incoming())
         && incoming().id == existing().id
         && incoming().staffUid == existing().staffUid
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (isManager() || existing().staffUid == request.auth.uid)
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'department', 'date', 'startTime', 'endTime', 'shiftTitle', 'notes', 'status', 'updatedAt'
@@ -542,14 +542,14 @@ service cloud.firestore {
         && (incoming().staffUid == request.auth.uid || isManager())
         && incoming().status == 'pending'
         && incoming().reviewedByUid == ''
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().createdAt is timestamp && incoming().createdAt <= request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
       allow update: if isVerifiedUser() && isValidId(requestId)
         && isValidTimeOffRequest(incoming())
         && incoming().id == existing().id
         && incoming().staffUid == existing().staffUid
         && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
           (isManager()
             && existing().status == 'pending'

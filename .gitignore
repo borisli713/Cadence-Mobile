@@ -1,8 +1,11 @@
 node_modules/
 build/
+.gradle/
+app/build/
 dist/
 coverage/
 .DS_Store
 *.log
+*-debug.log
 .env*
 !.env.example
