@@ -135,6 +135,7 @@ fun CadenceApp() {
 
     val currentUser by auth.authStateFlow()
         .collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    var verificationTick by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         NotificationHelper.ensureChannel(context)
@@ -150,8 +151,16 @@ fun CadenceApp() {
     }
 
     val user = currentUser
-    if (user == null) {
-        AuthScreen(onAuthSuccess = {})
+    val isVerified = remember(user, verificationTick) {
+        (Firebase.auth.currentUser ?: user)?.isEmailVerified == true
+    }
+
+    if (user == null || !isVerified) {
+        AuthScreen(
+            unverifiedUser = user,
+            onAuthSuccess = { verificationTick++ },
+            onVerificationConfirmed = { verificationTick++ }
+        )
     } else {
         val uid = user.uid
         key(uid) {

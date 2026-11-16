@@ -1,15 +1,19 @@
 <resources>
     <string name="app_name">Cadence</string>
     <string name="tagline">Shift Reporting &amp; Fair Scheduling</string>
-    <string name="sign_in_title">Workforce Clarity, Built on Fairness</string>
-    <string name="sign_in_subtitle">Verified shift reporting, manager approvals with one-click Accept All, and fairness-balanced overlap scheduling.</string>
-    <string name="sign_up_title">Create Your Team Account</string>
-    <string name="sign_up_subtitle">Join with your Google account to auto-provision your Cadence profile, view shifts, and submit reports.</string>
+    <string name="sign_in_title">Welcome Back</string>
+    <string name="sign_in_subtitle">Sign in with your email and password or Google account to access shifts, reports, and approvals.</string>
+    <string name="sign_up_title">Create Your Account</string>
+    <string name="sign_up_subtitle">Register with email and password or continue with Google to auto-provision your Cadence profile.</string>
     <string name="auth_mode_sign_in">Sign In</string>
     <string name="auth_mode_sign_up">Create Account</string>
-    <string name="sign_in_with_google">Sign in with Google</string>
-    <string name="sign_up_with_google">Sign up with Google</string>
-    <string name="auth_footer_note">Authentication uses Google Sign-In. Email/password sign-in requires manual setup in the Firebase Console.</string>
+    <string name="sign_in_with_email">Sign In</string>
+    <string name="sign_up_with_email">Create Account</string>
+    <string name="sign_in_with_google">Continue with Google</string>
+    <string name="auth_footer_note">Email accounts require email verification before accessing your team schedule.</string>
+    <string name="verify_email_title">Verify Your Email</string>
+    <string name="verify_email_check_button">I\'ve Verified My Email</string>
+    <string name="verify_email_resend_button">Resend Verification Email</string>
     <string name="sign_out">Sign out</string>
     <string name="loading_workspace">Loading Cadence workspace…</string>
     <string name="nav_overview">Overview</string>
