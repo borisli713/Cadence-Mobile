@@ -143,7 +143,7 @@ fun CadenceApp() {
             GoogleAuthHelper.attemptAutoSignIn(
                 context = context,
                 credentialManager = credentialManager,
-                onAuthSuccess = {},
+                onAuthSuccess = { verificationTick++ },
                 onUnauthenticated = {},
                 scope = scope
             )
@@ -446,7 +446,8 @@ private fun WorkspaceRoot(currentUserId: String) {
                                         onOpenLogReport = {
                                             openReportModalFromOverview = true
                                             activeTab = CadenceTab.REPORTS
-                                        }
+                                        },
+                                        onSubmitScheduleChange = viewModel::submitScheduleChange
                                     )
 
                                     CadenceTab.SCHEDULE -> ScheduleFairnessScreen(

@@ -509,12 +509,13 @@ fun ScheduleFairnessScreen(
     changeRequestShift?.let { s ->
         RequestChangeDialog(
             shift = s,
+            availableShifts = data.shifts,
             staffDirectory = data.staffDirectory,
             currentUserUid = data.profile.uid,
             currentUserName = data.profile.displayName,
             onDismiss = { changeRequestShift = null },
-            onSubmit = { type, pDate, pStart, pEnd, pUid, pName, reason ->
-                onSubmitScheduleChange(s, type, pDate, pStart, pEnd, pUid, pName, reason)
+            onSubmit = { chosenShift, type, pDate, pStart, pEnd, pUid, pName, reason ->
+                onSubmitScheduleChange(chosenShift, type, pDate, pStart, pEnd, pUid, pName, reason)
             }
         )
     }

@@ -400,11 +400,13 @@ fun EditShiftDialog(
 @Composable
 fun RequestChangeDialog(
     shift: Shift,
+    availableShifts: List<Shift> = listOf(shift),
     staffDirectory: List<StaffDirectoryEntry>,
     currentUserUid: String,
     currentUserName: String,
     onDismiss: () -> Unit,
     onSubmit: (
+        selectedShift: Shift,
         type: ScheduleChangeType,
         proposedDate: String,
         proposedStart: String,
@@ -414,19 +416,25 @@ fun RequestChangeDialog(
         reason: String
     ) -> Unit
 ) {
-    val defaultType = if (shift.status == ShiftStatus.OPEN) ScheduleChangeType.CLAIM else ScheduleChangeType.TIME_CHANGE
-    var type by remember { mutableStateOf(defaultType) }
-    var proposedDate by remember { mutableStateOf(shift.date) }
-    var proposedStart by remember { mutableStateOf(shift.startTime) }
-    var proposedEnd by remember { mutableStateOf(shift.endTime) }
-    var swapUid by remember { mutableStateOf(if (defaultType == ScheduleChangeType.CLAIM) currentUserUid else "") }
-    var swapName by remember { mutableStateOf(if (defaultType == ScheduleChangeType.CLAIM) currentUserName else "") }
+    val shiftOptions = remember(availableShifts, shift) {
+        if (availableShifts.any { it.id == shift.id }) availableShifts else listOf(shift) + availableShifts
+    }
+    var selectedShift by remember(shift.id) { mutableStateOf(shift) }
+    var shiftDropdownExpanded by remember { mutableStateOf(false) }
+
+    val defaultType = if (selectedShift.status == ShiftStatus.OPEN) ScheduleChangeType.CLAIM else ScheduleChangeType.TIME_CHANGE
+    var type by remember(shift.id) { mutableStateOf(defaultType) }
+    var proposedDate by remember(shift.id) { mutableStateOf(selectedShift.date) }
+    var proposedStart by remember(shift.id) { mutableStateOf(selectedShift.startTime) }
+    var proposedEnd by remember(shift.id) { mutableStateOf(selectedShift.endTime) }
+    var swapUid by remember(shift.id) { mutableStateOf(if (defaultType == ScheduleChangeType.CLAIM) currentUserUid else "") }
+    var swapName by remember(shift.id) { mutableStateOf(if (defaultType == ScheduleChangeType.CLAIM) currentUserName else "") }
     var reason by remember { mutableStateOf("") }
     var swapDropdown by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Schedule Change Request") },
+        title = { Text("Request Shift Change") },
         text = {
             Column(
                 modifier = Modifier
@@ -434,7 +442,61 @@ fun RequestChangeDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("${shift.title} (${shift.date} ${shift.startTime}-${shift.endTime})", style = MaterialTheme.typography.titleSmall)
+                ExposedDropdownMenuBox(
+                    expanded = shiftDropdownExpanded,
+                    onExpandedChange = { shiftDropdownExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = "${selectedShift.title} (${selectedShift.date} ${selectedShift.startTime}-${selectedShift.endTime})",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Select Shift") },
+                        supportingText = { Text("Status: ${selectedShift.status.label} • ${selectedShift.assignedName.ifBlank { "Open / Unassigned" }}") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = shiftDropdownExpanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = shiftDropdownExpanded,
+                        onDismissRequest = { shiftDropdownExpanded = false }
+                    ) {
+                        shiftOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(option.title, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            text = "${option.date} • ${option.startTime}-${option.endTime} • ${option.status.label}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Slate600
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedShift = option
+                                    proposedDate = option.date
+                                    proposedStart = option.startTime
+                                    proposedEnd = option.endTime
+                                    val nextDefault = if (option.status == ShiftStatus.OPEN) {
+                                        ScheduleChangeType.CLAIM
+                                    } else {
+                                        ScheduleChangeType.TIME_CHANGE
+                                    }
+                                    type = nextDefault
+                                    if (nextDefault == ScheduleChangeType.CLAIM) {
+                                        swapUid = currentUserUid
+                                        swapName = currentUserName
+                                    } else if (swapUid == option.assignedUid) {
+                                        swapUid = ""
+                                        swapName = ""
+                                    }
+                                    shiftDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ScheduleChangeType.entries.forEach { t ->
@@ -473,7 +535,7 @@ fun RequestChangeDialog(
                                 .menuAnchor()
                         )
                         ExposedDropdownMenu(expanded = swapDropdown, onDismissRequest = { swapDropdown = false }) {
-                            staffDirectory.filter { it.uid != shift.assignedUid }.forEach { member ->
+                            staffDirectory.filter { it.uid != selectedShift.assignedUid }.forEach { member ->
                                 DropdownMenuItem(
                                     text = { Text(member.displayName) },
                                     onClick = {
@@ -491,6 +553,7 @@ fun RequestChangeDialog(
                     value = reason,
                     onValueChange = { reason = it },
                     label = { Text("Reason") },
+                    placeholder = { Text("Explain why you are requesting this shift change") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -499,7 +562,7 @@ fun RequestChangeDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSubmit(type, proposedDate, proposedStart, proposedEnd, swapUid, swapName, reason)
+                    onSubmit(selectedShift, type, proposedDate, proposedStart, proposedEnd, swapUid, swapName, reason)
                     onDismiss()
                 },
                 enabled = reason.isNotBlank() && (type != ScheduleChangeType.SWAP || swapUid.isNotBlank())

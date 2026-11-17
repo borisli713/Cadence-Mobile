@@ -1,5 +1,6 @@
 package com.cadence.shifts.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -31,11 +33,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.data.model.ScheduleChangeType
+import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.ShiftReportStatus
 import com.cadence.shifts.data.model.ShiftStatus
 import com.cadence.shifts.domain.FairnessEngine
@@ -58,8 +65,10 @@ fun OverviewScreen(
     onNavigateToApprovals: () -> Unit,
     onNavigateToTimeOff: () -> Unit,
     onNavigateToNotifications: () -> Unit,
-    onOpenLogReport: () -> Unit
+    onOpenLogReport: () -> Unit,
+    onSubmitScheduleChange: (Shift, ScheduleChangeType, String, String, String, String, String, String) -> Unit
 ) {
+    var selectedChangeShift by remember { mutableStateOf<Shift?>(null) }
     val myStaffEntry = remember(data.staffDirectory, data.profile.uid) {
         data.staffDirectory.firstOrNull { it.uid == data.profile.uid }
     }
@@ -131,6 +140,19 @@ fun OverviewScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Review Approvals (${data.pendingApprovalsCount})")
                         }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            selectedChangeShift = data.shifts.firstOrNull { it.assignedUid == data.profile.uid }
+                                ?: data.shifts.firstOrNull()
+                        },
+                        enabled = data.shifts.isNotEmpty(),
+                        modifier = Modifier.testTag("overview_request_shift_change_button")
+                    ) {
+                        Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Request Shift Change")
                     }
 
                     OutlinedButton(onClick = onNavigateToSchedule) {
@@ -232,7 +254,11 @@ fun OverviewScreen(
                     ShiftStatus.COMPLETED -> BadgeTone.SUCCESS
                     ShiftStatus.SCHEDULED -> BadgeTone.INFO
                 }
-                CadenceCard {
+                CadenceCard(
+                    modifier = Modifier
+                        .clickable { selectedChangeShift = shift }
+                        .testTag("overview_shift_card_${shift.id}")
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -343,5 +369,19 @@ fun OverviewScreen(
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+
+    selectedChangeShift?.let { shift ->
+        RequestChangeDialog(
+            shift = shift,
+            availableShifts = data.shifts,
+            staffDirectory = data.staffDirectory,
+            currentUserUid = data.profile.uid,
+            currentUserName = data.profile.displayName,
+            onDismiss = { selectedChangeShift = null },
+            onSubmit = { chosenShift, type, pDate, pStart, pEnd, pUid, pName, reason ->
+                onSubmitScheduleChange(chosenShift, type, pDate, pStart, pEnd, pUid, pName, reason)
+            }
+        )
     }
 }

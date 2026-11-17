@@ -620,8 +620,11 @@ fun AuthScreen(
                                             errorMessage = msg
                                         },
                                         scope = scope,
-                                        onAuthCancelled = {
+                                        onAuthCancelled = { hint ->
                                             isGoogleBusy = false
+                                            if (!hint.isNullOrBlank()) {
+                                                infoMessage = hint
+                                            }
                                         }
                                     )
                                 },

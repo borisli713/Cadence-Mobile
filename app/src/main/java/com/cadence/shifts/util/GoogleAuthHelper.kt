@@ -2,25 +2,37 @@ package com.cadence.shifts.util
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.MutableContextWrapper
 import android.util.Log
 import android.util.Patterns
 import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialCustomException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialInterruptedException
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.GetCredentialUnsupportedException
+import androidx.credentials.exceptions.NoCredentialException
 import com.cadence.shifts.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -28,6 +40,32 @@ import kotlinx.coroutines.withContext
 
 object GoogleAuthHelper {
     private const val TAG = "Auth"
+
+    private tailrec fun Context.findActivity(): Activity? = when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+
+    private suspend fun signInFirebaseWithGoogleCredential(credential: Credential): FirebaseUser {
+        val idToken = when {
+            credential is GoogleIdTokenCredential -> credential.idToken
+            credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL -> {
+                GoogleIdTokenCredential.createFrom(credential.data).idToken
+            }
+            else -> throw IllegalStateException("Unexpected credential type: ${credential.type}")
+        }
+
+        val authCredential = GoogleAuthProvider.getCredential(idToken, null)
+        val authResult = Firebase.auth.signInWithCredential(authCredential).await()
+        val user = authResult.user ?: Firebase.auth.currentUser
+            ?: throw IllegalStateException("Google Sign-In completed without a Firebase session.")
+
+        // Ensure fresh token claims (e.g. email_verified) before Firestore listeners attach
+        runCatching { user.reload().await() }
+        runCatching { user.getIdToken(true).await() }
+        return Firebase.auth.currentUser ?: user
+    }
 
     fun attemptAutoSignIn(
         context: Context,
@@ -38,6 +76,11 @@ object GoogleAuthHelper {
     ) {
         if (Firebase.auth.currentUser != null) {
             onAuthSuccess()
+            return
+        }
+        val activity = context.findActivity()
+        if (activity == null) {
+            onUnauthenticated()
             return
         }
         val clientId = try {
@@ -59,18 +102,18 @@ object GoogleAuthHelper {
 
         scope.launch {
             try {
-                val result = credentialManager.getCredential(context, request)
-                val credential = result.credential
-                if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                    val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                    val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                    Firebase.auth.signInWithCredential(authCredential).await()
+                val result = credentialManager.getCredential(MutableContextWrapper(activity), request)
+                signInFirebaseWithGoogleCredential(result.credential)
+                withContext(Dispatchers.Main) {
                     onAuthSuccess()
-                } else {
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.d(TAG, "Auto sign-in skipped: ${e.javaClass.simpleName}: ${e.message}")
+                withContext(Dispatchers.Main) {
                     onUnauthenticated()
                 }
-            } catch (_: Exception) {
-                onUnauthenticated()
             }
         }
     }
@@ -81,39 +124,116 @@ object GoogleAuthHelper {
         onAuthSuccess: () -> Unit,
         onAuthError: (String) -> Unit,
         scope: CoroutineScope,
-        onAuthCancelled: () -> Unit = {}
+        onAuthCancelled: (String?) -> Unit = {}
     ) {
         val clientId = try {
-            context.getString(R.string.default_web_client_id)
+            context.getString(R.string.default_web_client_id).trim()
         } catch (_: Exception) {
-            onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
+            onAuthError("Google Sign-In configuration missing: default_web_client_id not found.")
+            return
+        }
+
+        if (clientId.isBlank()) {
+            onAuthError("Google Sign-In is not configured (empty Web Client ID).")
+            return
+        }
+
+        val activity = context.findActivity()
+        if (activity == null) {
+            onAuthError("Unable to open Google account selector without an active screen.")
             return
         }
 
         val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-        val request = GetCredentialRequest.Builder()
+        val primaryRequest = GetCredentialRequest.Builder()
             .addCredentialOption(signInOption)
             .build()
 
         scope.launch {
+            val credentialContext = MutableContextWrapper(activity)
             try {
-                val activityContext = (context as? Activity) ?: context
-                val result = credentialManager.getCredential(activityContext, request)
-                val credential = result.credential
-                if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                    val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                    val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                    Firebase.auth.signInWithCredential(authCredential).await()
-                    onAuthSuccess()
-                } else {
-                    onAuthError("Unexpected credential type received.")
+                val result = try {
+                    credentialManager.getCredential(credentialContext, primaryRequest)
+                } catch (noCred: NoCredentialException) {
+                    Log.w(TAG, "GetSignInWithGoogleOption returned NoCredentialException; retrying with GetGoogleIdOption", noCred)
+                    val fallbackOption = GetGoogleIdOption.Builder()
+                        .setFilterByAuthorizedAccounts(false)
+                        .setServerClientId(clientId)
+                        .build()
+                    val fallbackRequest = GetCredentialRequest.Builder()
+                        .addCredentialOption(fallbackOption)
+                        .build()
+                    credentialManager.getCredential(credentialContext, fallbackRequest)
                 }
+
+                signInFirebaseWithGoogleCredential(result.credential)
+                withContext(Dispatchers.Main) {
+                    onAuthSuccess()
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: GetCredentialCancellationException) {
-                Log.w(TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-                onAuthCancelled()
+                val detail = e.errorMessage?.toString().orEmpty()
+                Log.w(TAG, "Google Sign-In cancelled or rejected by Play Services: $detail", e)
+                val userHint = if (detail.contains("cancel", ignoreCase = true) || detail.isBlank()) {
+                    "Google Sign-In did not complete. If it closed right after picking an account, verify this build's SHA-1 fingerprint is added in Firebase Console, or sign in with Email & Password."
+                } else {
+                    "Google Sign-In cancelled ($detail)."
+                }
+                withContext(Dispatchers.Main) {
+                    onAuthCancelled(userHint)
+                }
+            } catch (e: NoCredentialException) {
+                Log.w(TAG, "No Google credentials found on device", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError("No Google account is signed in on this device, or Sign in with Google prompts are disabled in device settings.")
+                }
+            } catch (e: GetCredentialProviderConfigurationException) {
+                Log.e(TAG, "Credential provider configuration error", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError("Google Play Services credential provider is unavailable. Update Google Play Services or sign in with Email & Password.")
+                }
+            } catch (e: GetCredentialUnsupportedException) {
+                Log.e(TAG, "Credential manager unsupported", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError("Google Sign-In is not supported on this device. Please use Email & Password.")
+                }
+            } catch (e: GetCredentialInterruptedException) {
+                Log.w(TAG, "Google Sign-In interrupted", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError("Google Sign-In was interrupted. Please try again.")
+                }
+            } catch (e: GetCredentialCustomException) {
+                Log.e(TAG, "Custom Google Sign-In error: type=${e.type} msg=${e.errorMessage}", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError(
+                        "Google Sign-In failed (${e.errorMessage ?: e.type}). " +
+                            "If this is a release build, confirm its SHA-1 certificate is registered in Firebase."
+                    )
+                }
+            } catch (e: GetCredentialException) {
+                Log.e(TAG, "GetCredentialException: type=${e.type} msg=${e.errorMessage}", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError(
+                        "Google Sign-In failed (${e.errorMessage ?: e.type}). " +
+                            "Confirm Google Sign-In is enabled in Firebase Authentication and this APK's SHA-1 is registered."
+                    )
+                }
+            } catch (e: GoogleIdTokenParsingException) {
+                Log.e(TAG, "Invalid Google ID token", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError("Received an invalid Google ID token. Please try again.")
+                }
+            } catch (e: FirebaseAuthException) {
+                Log.e(TAG, "Firebase Google credential sign-in failed: code=${e.errorCode}", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError(formatFirebaseAuthError(e, "Firebase rejected Google Sign-In (${e.errorCode})."))
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Google Sign-In failed", e)
-                onAuthError(e.localizedMessage ?: "Google Sign-In failed")
+                Log.e(TAG, "Google Sign-In failed unexpectedly", e)
+                withContext(Dispatchers.Main) {
+                    onAuthError(e.localizedMessage ?: "Google Sign-In failed.")
+                }
             }
         }
     }
@@ -132,7 +252,9 @@ object GoogleAuthHelper {
             if (!user.isEmailVerified) {
                 runCatching { user.reload().await() }
             }
-            Result.success(user)
+            Result.success(Firebase.auth.currentUser ?: user)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Email sign-in failed", e)
             Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to sign in.")))
@@ -168,6 +290,8 @@ object GoogleAuthHelper {
                 user.sendEmailVerification().await()
             }.isSuccess
             Result.success(user to verificationSent)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Email sign-up failed", e)
             Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to create account.")))
@@ -182,6 +306,8 @@ object GoogleAuthHelper {
         return try {
             Firebase.auth.sendPasswordResetEmail(trimmedEmail).await()
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Password reset failed", e)
             Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to send password reset email.")))
@@ -194,6 +320,8 @@ object GoogleAuthHelper {
         return try {
             user.sendEmailVerification().await()
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Failed to resend verification email.")))
         }
@@ -206,6 +334,8 @@ object GoogleAuthHelper {
             user.reload().await()
             user.getIdToken(true).await()
             Result.success(Firebase.auth.currentUser?.isEmailVerified == true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to refresh verification status.")))
         }
@@ -224,7 +354,9 @@ object GoogleAuthHelper {
                     Log.w(TAG, "Failed to clear credential state: ${e.message}")
                 } finally {
                     Firebase.auth.signOut()
-                    onSignOutComplete()
+                    withContext(Dispatchers.Main) {
+                        onSignOutComplete()
+                    }
                 }
             }
         }
@@ -234,12 +366,16 @@ object GoogleAuthHelper {
         val code = (e as? FirebaseAuthException)?.errorCode
         return when (code) {
             "ERROR_INVALID_EMAIL" -> "That email address format is invalid."
-            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL" -> "Incorrect email or password. Please try again."
+            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL" -> "Incorrect email/password or invalid Google credential. Please try again."
             "ERROR_USER_NOT_FOUND" -> "No account exists for that email address."
             "ERROR_EMAIL_ALREADY_IN_USE" -> "An account with this email already exists. Try signing in instead."
+            "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ->
+                "An account with this email already exists using Email & Password. Sign in with your password first."
             "ERROR_WEAK_PASSWORD" -> "Please choose a stronger password (at least 6 characters)."
             "ERROR_TOO_MANY_REQUESTS" -> "Too many attempts. Please wait a moment and try again."
-            "ERROR_OPERATION_NOT_ALLOWED" -> "Email/Password sign-in is not enabled in Firebase Authentication."
+            "ERROR_OPERATION_NOT_ALLOWED" -> "This sign-in provider is not enabled in Firebase Authentication."
+            "ERROR_USER_DISABLED" -> "This account has been disabled by an administrator."
+            "ERROR_NETWORK_REQUEST_FAILED" -> "Network error while contacting Firebase Authentication. Check your connection."
             else -> e.localizedMessage ?: fallback
         }
     }
