@@ -65,8 +65,9 @@ jobs:
           cp Cadence-Mobile.apk fdroid/repo/
           cd fdroid
           fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --no-prompt
-          echo 'repo_url: "https://borisli713.github.io/Cadence-Mobile/repo"' >> config.yml
-          echo 'repo_name: "Cadence Mobile Repo"' >> config.yml
+          sed -i 's|^#* *repo_url:.*|repo_url: "https://borisli713.github.io/Cadence-Mobile/repo"|g' config.yml
+          sed -i 's|^#* *repo_name:.*|repo_name: "Cadence Mobile"|g' config.yml
+          sed -i 's|^#* *repo_description:.*|repo_description: "Official F-Droid repository for Cadence Mobile"|g' config.yml
           echo 'keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"' >> config.yml
           echo 'keypass: "${{ secrets.KEY_PASSWORD }}"' >> config.yml
           fdroid update --create-metadata --use-date-from-apk
