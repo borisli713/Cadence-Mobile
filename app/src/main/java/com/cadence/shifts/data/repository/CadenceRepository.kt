@@ -42,6 +42,7 @@ import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import java.time.Instant
@@ -67,7 +68,7 @@ class CadenceRepository(
 
     private fun requireUserId(): String =
         auth.currentUser?.uid
-            ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
+            ?: throw IllegalStateException("User must be signed in before accessing Firestore.")
 
     private fun newId(prefix: String): String =
         "${prefix}_${UUID.randomUUID().toString().replace("-", "").take(16)}"
@@ -178,6 +179,25 @@ class CadenceRepository(
                     .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
             }
             .withFirestoreLogging(OperationType.LIST, "notifications", uid)
+    }
+
+    fun observeUserProfile(
+        uid: String,
+        email: String,
+        initialProfile: UserProfile
+    ): Flow<UserProfile> {
+        val isBootstrapAdmin = email.trim().equals(BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true)
+        val userStream = db.collection("users").document(uid).snapshots()
+        val managerStream = db.collection("managers").document(uid).snapshots()
+        return combine(userStream, managerStream) { userSnap, managerSnap ->
+            val base = userSnap.toUserProfile() ?: initialProfile
+            val effectiveRole = if (isBootstrapAdmin || managerSnap.exists()) {
+                UserRole.MANAGER
+            } else {
+                base.role
+            }
+            base.copy(role = effectiveRole)
+        }.withFirestoreLogging(OperationType.GET, "users/$uid", uid)
     }
 
     // --- User Provisioning & Preferences ---

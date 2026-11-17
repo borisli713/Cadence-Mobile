@@ -24,15 +24,14 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -82,15 +81,15 @@ class CadenceViewModel(
     private val _weekSlots = MutableStateFlow(FairnessEngine.DEFAULT_WEEK_SLOTS)
     val weekSlots: StateFlow<List<WeekSlotConfig>> = _weekSlots.asStateFlow()
 
-    private val _incomingAlert = MutableSharedFlow<PushNotificationRecord>(extraBufferCapacity = 8)
-    val incomingAlert: SharedFlow<PushNotificationRecord> = _incomingAlert.asSharedFlow()
-
-    private var knownNotificationIds: MutableSet<String>? = null
+    private var profileSyncJob: Job? = null
 
     val workspaceData: StateFlow<WorkspaceUiData?> = _profileFlow
         .filterNotNull()
-        .flatMapLatest { profile ->
-            val isManager = profile.role == UserRole.MANAGER
+        .distinctUntilChanged { old, new ->
+            old.uid == new.uid && old.role == new.role
+        }
+        .flatMapLatest { baseProfile ->
+            val isManager = baseProfile.role == UserRole.MANAGER
             val primaryStreams = combine(
                 repository.observeStaffDirectory(currentUserId),
                 repository.observeShifts(currentUserId),
@@ -108,10 +107,9 @@ class CadenceViewModel(
                 Triple(subs, timeOff, notifs)
             }
 
-            combine(primaryStreams, secondaryStreams) { p, s ->
-                detectNewNotifications(profile, s.third)
+            combine(_profileFlow.filterNotNull(), primaryStreams, secondaryStreams) { latestProfile, p, s ->
                 WorkspaceUiData(
-                    profile = profile,
+                    profile = latestProfile,
                     staffDirectory = p.first,
                     shifts = p.second,
                     scheduleChanges = p.third,
@@ -127,12 +125,12 @@ class CadenceViewModel(
                 }
                 val msg = unwrapFirestoreErrorMessage(error, "Failed to sync workspace data.")
                 Log.w(TAG, "Stream error: $msg", error)
-                emit(WorkspaceUiData(profile = profile, streamError = msg))
+                emit(WorkspaceUiData(profile = baseProfile, streamError = msg))
             }
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000L),
+            started = SharingStarted.Eagerly,
             initialValue = null
         )
 
@@ -147,34 +145,28 @@ class CadenceViewModel(
             return
         }
         _profileState.value = ProfileUiState.Loading
-        viewModelScope.launch {
+        profileSyncJob?.cancel()
+        profileSyncJob = viewModelScope.launch {
             try {
-                val profile = repository.ensureVerifiedUserProvisioned(user)
-                _profileFlow.value = profile
-                _profileState.value = ProfileUiState.Ready(profile)
+                val initialProfile = repository.ensureVerifiedUserProvisioned(user)
+                _profileFlow.value = initialProfile
+                _profileState.value = ProfileUiState.Ready(initialProfile)
+                repository.observeUserProfile(user.uid, initialProfile.email, initialProfile)
+                    .catch { error ->
+                        if (error is CancellationException && unwrapFirestoreErrorMessage(error, "") == error.message) {
+                            throw error
+                        }
+                        Log.w(TAG, "Profile sync warning: ${error.message}")
+                    }
+                    .collect { liveProfile ->
+                        _profileFlow.value = liveProfile
+                        _profileState.value = ProfileUiState.Ready(liveProfile)
+                    }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 val msg = unwrapFirestoreErrorMessage(e, "Unable to initialize Cadence profile.")
                 _profileState.value = ProfileUiState.Error(msg)
-            }
-        }
-    }
-
-    private fun detectNewNotifications(
-        profile: UserProfile,
-        notifications: List<PushNotificationRecord>
-    ) {
-        val currentKnown = knownNotificationIds
-        if (currentKnown == null) {
-            knownNotificationIds = notifications.map { it.id }.toMutableSet()
-            return
-        }
-        val newlyArrived = notifications.filter { it.id !in currentKnown }
-        newlyArrived.forEach { notif ->
-            currentKnown.add(notif.id)
-            if (!notif.isRead && notif.recipientUid == profile.uid && profile.pushNotificationsEnabled) {
-                _incomingAlert.tryEmit(notif)
             }
         }
     }

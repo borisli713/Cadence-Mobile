@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -40,6 +41,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.cadence.shifts.data.model.ApprovalStatus
 import com.cadence.shifts.data.model.ScheduleChangeRequest
+import com.cadence.shifts.data.model.ScheduleChangeType
+import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.ui.components.BadgeTone
 import com.cadence.shifts.ui.components.CadenceCard
 import com.cadence.shifts.ui.components.EmptyStatePanel
@@ -65,10 +68,12 @@ fun ManagerApprovalsScreen(
     data: WorkspaceUiData,
     busyAction: String?,
     onAcceptAll: () -> Unit,
-    onDecide: (ScheduleChangeRequest, ApprovalStatus, String) -> Unit
+    onDecide: (ScheduleChangeRequest, ApprovalStatus, String) -> Unit,
+    onSubmitScheduleChange: (Shift, ScheduleChangeType, String, String, String, String, String, String) -> Unit
 ) {
     var filter by remember { mutableStateOf(ApprovalFilter.PENDING) }
     val reviewNotes = remember { mutableStateMapOf<String, String>() }
+    var requestDialogShift by remember { mutableStateOf<Shift?>(null) }
 
     val pendingCount = remember(data.scheduleChanges) {
         data.scheduleChanges.count { it.status == ApprovalStatus.PENDING }
@@ -124,6 +129,21 @@ fun ManagerApprovalsScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Accept All ($pendingCount)")
                         }
+                    }
+                }
+
+                if (data.shifts.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = {
+                            requestDialogShift = data.shifts.firstOrNull { it.assignedUid == data.profile.uid }
+                                ?: data.shifts.firstOrNull()
+                        },
+                        enabled = busyAction == null,
+                        modifier = Modifier.testTag("approvals_new_request_button")
+                    ) {
+                        Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("New Change Request")
                     }
                 }
 
@@ -246,5 +266,19 @@ fun ManagerApprovalsScreen(
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+
+    requestDialogShift?.let { shift ->
+        RequestChangeDialog(
+            shift = shift,
+            availableShifts = data.shifts,
+            staffDirectory = data.staffDirectory,
+            currentUserUid = data.profile.uid,
+            currentUserName = data.profile.displayName,
+            onDismiss = { requestDialogShift = null },
+            onSubmit = { chosenShift, type, pDate, pStart, pEnd, pUid, pName, reason ->
+                onSubmitScheduleChange(chosenShift, type, pDate, pStart, pEnd, pUid, pName, reason)
+            }
+        )
     }
 }

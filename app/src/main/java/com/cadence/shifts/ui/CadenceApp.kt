@@ -127,7 +127,10 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 }
 
 @Composable
-fun CadenceApp() {
+fun CadenceApp(
+    requestedTabRoute: String? = null,
+    onConsumedRequestedTab: () -> Unit = {}
+) {
     val auth = Firebase.auth
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,14 +167,22 @@ fun CadenceApp() {
     } else {
         val uid = user.uid
         key(uid) {
-            WorkspaceRoot(currentUserId = uid)
+            WorkspaceRoot(
+                currentUserId = uid,
+                requestedTabRoute = requestedTabRoute,
+                onConsumedRequestedTab = onConsumedRequestedTab
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WorkspaceRoot(currentUserId: String) {
+private fun WorkspaceRoot(
+    currentUserId: String,
+    requestedTabRoute: String?,
+    onConsumedRequestedTab: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
@@ -211,21 +222,53 @@ private fun WorkspaceRoot(currentUserId: String) {
         }
     }
 
+    var askedNotificationPermissionOnce by remember(currentUserId) { mutableStateOf(false) }
+
+    LaunchedEffect(requestedTabRoute) {
+        val target = CadenceTab.entries.firstOrNull { it.route == requestedTabRoute }
+        if (target != null) {
+            activeTab = target
+            onConsumedRequestedTab()
+        }
+    }
+
+    LaunchedEffect(profileState, hasOsNotifPermission) {
+        val ready = profileState as? ProfileUiState.Ready ?: return@LaunchedEffect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !hasOsNotifPermission &&
+            ready.profile.pushNotificationsEnabled &&
+            !askedNotificationPermissionOnce
+        ) {
+            askedNotificationPermissionOnce = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     LaunchedEffect(bannerMessage) {
         val msg = bannerMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(msg)
         viewModel.clearBanner()
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.incomingAlert.collect { alert ->
-            NotificationHelper.dispatchLocalNotification(
-                context = context,
-                title = alert.title,
-                message = alert.message,
-                notificationId = alert.id.hashCode()
-            )
-            viewModel.showBanner("${alert.title}: ${alert.message}")
+    LaunchedEffect(workspaceData) {
+        val liveData = workspaceData ?: return@LaunchedEffect
+        val alerts = NotificationHelper.filterUnnotifiedAlerts(
+            context = context,
+            uid = liveData.profile.uid,
+            notifications = liveData.notifications,
+            pushEnabled = liveData.profile.pushNotificationsEnabled
+        )
+        if (alerts.isNotEmpty()) {
+            alerts.take(3).forEach { alert ->
+                NotificationHelper.dispatchLocalNotification(
+                    context = context,
+                    title = alert.title,
+                    message = alert.message,
+                    notificationId = alert.id.hashCode()
+                )
+            }
+            val latest = alerts.first()
+            viewModel.showBanner("${latest.title}: ${latest.message}")
         }
     }
 
@@ -479,7 +522,8 @@ private fun WorkspaceRoot(currentUserId: String) {
                                         data = data,
                                         busyAction = busyAction,
                                         onAcceptAll = viewModel::acceptAllPendingChanges,
-                                        onDecide = viewModel::decideScheduleChange
+                                        onDecide = viewModel::decideScheduleChange,
+                                        onSubmitScheduleChange = viewModel::submitScheduleChange
                                     )
 
                                     CadenceTab.TIME_OFF -> TimeOffRequestsScreen(

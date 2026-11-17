@@ -504,9 +504,22 @@ fun RequestChangeDialog(
                             selected = type == t,
                             onClick = {
                                 type = t
-                                if (t == ScheduleChangeType.CLAIM) {
-                                    swapUid = currentUserUid
-                                    swapName = currentUserName
+                                when (t) {
+                                    ScheduleChangeType.CLAIM -> {
+                                        swapUid = currentUserUid
+                                        swapName = currentUserName
+                                    }
+                                    ScheduleChangeType.TIME_CHANGE,
+                                    ScheduleChangeType.DROP -> {
+                                        swapUid = ""
+                                        swapName = ""
+                                    }
+                                    ScheduleChangeType.SWAP -> {
+                                        if (swapUid == currentUserUid && selectedShift.assignedUid == currentUserUid) {
+                                            swapUid = ""
+                                            swapName = ""
+                                        }
+                                    }
                                 }
                             },
                             label = { Text(t.label) }
@@ -514,11 +527,25 @@ fun RequestChangeDialog(
                     }
                 }
 
+                val isTimeChangeValid = type != ScheduleChangeType.TIME_CHANGE || (
+                    proposedDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
+                        proposedStart.matches(Regex("\\d{2}:\\d{2}")) &&
+                        proposedEnd.matches(Regex("\\d{2}:\\d{2}")) &&
+                        FairnessEngine.computeShiftHours(proposedStart, proposedEnd) >= 0.25
+                    )
+
                 if (type == ScheduleChangeType.TIME_CHANGE) {
-                    OutlinedTextField(value = proposedDate, onValueChange = { proposedDate = it }, label = { Text("Proposed Date") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = proposedDate, onValueChange = { proposedDate = it }, label = { Text("Proposed Date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = proposedStart, onValueChange = { proposedStart = it }, label = { Text("Start") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = proposedEnd, onValueChange = { proposedEnd = it }, label = { Text("End") }, singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = proposedStart, onValueChange = { proposedStart = it }, label = { Text("Start (HH:mm)") }, singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = proposedEnd, onValueChange = { proposedEnd = it }, label = { Text("End (HH:mm)") }, singleLine = true, modifier = Modifier.weight(1f))
+                    }
+                    if (!isTimeChangeValid) {
+                        Text(
+                            text = "Use YYYY-MM-DD date and HH:mm times (at least 15 min duration).",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Rose600
+                        )
                     }
                 }
 
@@ -560,12 +587,18 @@ fun RequestChangeDialog(
             }
         },
         confirmButton = {
+            val isTimeValid = type != ScheduleChangeType.TIME_CHANGE || (
+                proposedDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
+                    proposedStart.matches(Regex("\\d{2}:\\d{2}")) &&
+                    proposedEnd.matches(Regex("\\d{2}:\\d{2}")) &&
+                    FairnessEngine.computeShiftHours(proposedStart, proposedEnd) >= 0.25
+                )
             Button(
                 onClick = {
                     onSubmit(selectedShift, type, proposedDate, proposedStart, proposedEnd, swapUid, swapName, reason)
                     onDismiss()
                 },
-                enabled = reason.isNotBlank() && (type != ScheduleChangeType.SWAP || swapUid.isNotBlank())
+                enabled = reason.isNotBlank() && isTimeValid && (type != ScheduleChangeType.SWAP || swapUid.isNotBlank())
             ) {
                 Text("Submit Request")
             }
