@@ -27,14 +27,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Calculate Next Version (Start 1.0.3, +0.0.1)
+      - name: Calculate Next Version (Start 1.1.0, +0.0.1)
         id: version
         run: |
           set -euo pipefail
           git fetch --tags
           LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
           if [ -z "$LATEST_TAG" ]; then
-            NEXT_VER="1.0.3"
+            NEXT_VER="1.1.0"
           else
             CLEAN_VER=${LATEST_TAG#v}
             MAJOR=$(echo "$CLEAN_VER" | cut -d. -f1)
