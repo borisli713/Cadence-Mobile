@@ -10,6 +10,10 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -26,8 +30,9 @@ jobs:
       - name: Calculate Next Version (Start 1.0.3, +0.0.1)
         id: version
         run: |
+          set -euo pipefail
           git fetch --tags
-          LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)
+          LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
           if [ -z "$LATEST_TAG" ]; then
             NEXT_VER="1.0.3"
           else
@@ -35,16 +40,16 @@ jobs:
             MAJOR=$(echo "$CLEAN_VER" | cut -d. -f1)
             MINOR=$(echo "$CLEAN_VER" | cut -d. -f2)
             PATCH=$(echo "$CLEAN_VER" | cut -d. -f3)
-            NEXT_PATCH=$((PATCH + 1))
-            NEXT_VER="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+            NEXT_PATCH=$((10#$PATCH + 1))
+            NEXT_VER="$((10#$MAJOR)).$((10#$MINOR)).${NEXT_PATCH}"
           fi
           MAJOR=$(echo "$NEXT_VER" | cut -d. -f1)
           MINOR=$(echo "$NEXT_VER" | cut -d. -f2)
           PATCH=$(echo "$NEXT_VER" | cut -d. -f3)
-          VER_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-          echo "name=$NEXT_VER" >> $GITHUB_OUTPUT
-          echo "code=$VER_CODE" >> $GITHUB_OUTPUT
-          echo "tag=v$NEXT_VER" >> $GITHUB_OUTPUT
+          VER_CODE=$((10#$MAJOR * 10000 + 10#$MINOR * 100 + 10#$PATCH))
+          echo "name=$NEXT_VER" >> "$GITHUB_OUTPUT"
+          echo "code=$VER_CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEXT_VER" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -58,63 +63,124 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Decode google-services.json
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > app/google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: printf '%s' "$GOOGLE_SERVICES_JSON" | base64 --decode > app/google-services.json
 
       - name: Build Versioned Release APK
+        env:
+          VER_CODE: ${{ steps.version.outputs.code }}
+          VER_NAME: ${{ steps.version.outputs.name }}
         run: |
-          sed -i 's/versionCode = [0-9]*/versionCode = ${{ steps.version.outputs.code }}/g' app/build.gradle.kts
-          sed -i 's/versionName = "[^"]*"/versionName = "${{ steps.version.outputs.name }}"/g' app/build.gradle.kts
+          set -euo pipefail
+          sed -i -E "s/(versionCode[[:space:]]*=[[:space:]]*)[0-9]+/\1${VER_CODE}/g" app/build.gradle.kts
+          sed -i -E "s/(versionName[[:space:]]*=[[:space:]]*)\"[^\"]*\"/\1\"${VER_NAME}\"/g" app/build.gradle.kts
           gradle assembleRelease
 
       - name: Align and Sign APK
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
-          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > release.jks
+          set -euo pipefail
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          printf '%s' "$SIGNING_KEY" | base64 --decode > release.jks
           UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "Error: No release APK found under app/build/outputs/apk/release" >&2
+            exit 1
+          fi
           "$BUILD_TOOLS/zipalign" -v -p 4 "$UNSIGNED_APK" aligned.apk
           "$BUILD_TOOLS/apksigner" sign --ks release.jks \
-            --ks-key-alias "${{ secrets.ALIAS }}" \
-            --ks-pass "pass:${{ secrets.KEY_STORE_PASSWORD }}" \
-            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-            --out "Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" aligned.apk
+            --ks-key-alias "$ALIAS" \
+            --ks-pass "pass:$KEY_STORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "Cadence-Mobile-${TAG}.apk" aligned.apk
 
       - name: Create New GitHub Release with Source Code
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Release ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           files: Cadence-Mobile-${{ steps.version.outputs.tag }}.apk
 
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
       - name: Build F-Droid Repo and Multi-Version Download Page
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_KEYALIAS: ${{ secrets.ALIAS }}
+          KEYSTORE_PASS: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y fdroidserver qrencode jq
-          mkdir -p fdroid/repo fdroid/metadata
-          cp "Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" fdroid/repo/
+          sudo apt-get install -y fdroidserver qrencode
 
-          gh release list --limit 50 --json tagName -q '.[].tagName' | while read TAG; do
-            if [ "$TAG" != "${{ steps.version.outputs.tag }}" ]; then
-              gh release download "$TAG" --pattern "*.apk" --dir fdroid/repo/ || true
+          mkdir -p fdroid/repo fdroid/metadata
+          cp "Cadence-Mobile-${TAG}.apk" fdroid/repo/
+
+          while IFS= read -r OLD_TAG; do
+            if [ -n "$OLD_TAG" ] && [ "$OLD_TAG" != "$TAG" ]; then
+              gh release download "$OLD_TAG" --pattern "*.apk" --dir fdroid/repo/ --skip-existing || true
             fi
-          done
+          done < <(gh release list --limit 50 --json tagName -q '.[].tagName')
+
+          if [ -z "$PAGES_BASE_URL" ]; then
+            OWNER="${GITHUB_REPOSITORY%%/*}"
+            REPO_NAME="${GITHUB_REPOSITORY#*/}"
+            if [ "$REPO_NAME" = "${OWNER}.github.io" ]; then
+              PAGES_BASE_URL="https://${OWNER}.github.io"
+            else
+              PAGES_BASE_URL="https://${OWNER}.github.io/${REPO_NAME}"
+            fi
+          fi
+          PAGES_BASE_URL="${PAGES_BASE_URL%/}"
+          REPO_URL="${PAGES_BASE_URL}/repo"
 
           cd fdroid
-          printf 'repo_url: "https://github.io"\nrepo_name: "Cadence Mobile"\nrepo_description: "Official F-Droid repository for Cadence Mobile"\nkeystore: "../release.jks"\nrepo_keyalias: "%s"\nkeystorepass: "%s"\nkeypass: "%s"\n' "${{ secrets.ALIAS }}" "${{ secrets.KEY_STORE_PASSWORD }}" "${{ secrets.KEY_PASSWORD }}" > config.yml
+          cat << EOF > config.yml
+          repo_url: "${REPO_URL}"
+          repo_name: "Cadence Mobile"
+          repo_description: "Official F-Droid repository for Cadence Mobile"
+          archive_older: 0
+          keystore: "../release.jks"
+          repo_keyalias: {env: REPO_KEYALIAS}
+          keystorepass: {env: KEYSTORE_PASS}
+          keypass: {env: KEY_PASS}
+          EOF
+          chmod 600 config.yml
 
-          fdroid update --config config.yml --create-metadata --use-date-from-apk
+          fdroid update --create-metadata --use-date-from-apk
+          rm -f config.yml
 
-          FINGERPRINT=$(keytool -list -v -keystore ../release.jks -alias "${{ secrets.ALIAS }}" -storepass "${{ secrets.KEY_STORE_PASSWORD }}" | grep -m 1 "SHA256:" | sed 's/.*SHA256: //;s/://g')
-          REPO_URI="https://github.io?fingerprint=${FINGERPRINT}"
+          FINGERPRINT=$(LC_ALL=C keytool -list -v -keystore ../release.jks -alias "$REPO_KEYALIAS" -storepass "$KEYSTORE_PASS" \
+            | grep -m 1 "SHA256:" \
+            | sed 's/.*SHA256: //;s/://g' \
+            | tr -d '[:space:]')
+          if [ -z "$FINGERPRINT" ]; then
+            echo "Error: Failed to extract SHA256 fingerprint from release.jks" >&2
+            exit 1
+          fi
+
+          REPO_URI="${REPO_URL}?fingerprint=${FINGERPRINT}"
+          FDROID_DEEP_LINK="fdroidrepos://${REPO_URL#https://}?fingerprint=${FINGERPRINT}"
           qrencode -s 6 -o repo-qr.png "$REPO_URI"
 
           PAST_LINKS=""
-          for apk in $(ls -v repo/*.apk | tac); do
+          while IFS= read -r apk; do
             fname=$(basename "$apk")
             PAST_LINKS="${PAST_LINKS}<li><a href=\"repo/${fname}\" download>${fname}</a></li>"
-          done
+          done < <(ls -1v repo/*.apk | tac)
 
           cat << EOF > index.html
           <!DOCTYPE html>
@@ -134,20 +200,17 @@ jobs:
           </head>
           <body>
             <h1>Cadence Mobile</h1>
-            <p>Latest Version: <strong>${{ steps.version.outputs.tag }}</strong></p>
-            <a class="btn" href="repo/Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" download>Download Latest APK (${{ steps.version.outputs.tag }})</a>
+            <p>Latest Version: <strong>${TAG}</strong></p>
+            <a class="btn" href="repo/Cadence-Mobile-${TAG}.apk" download>Download Latest APK (${TAG})</a>
             <h3>Scan to Add F-Droid Repo</h3>
             <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code">
-            <p><a href="${REPO_URI}">Open directly in F-Droid</a></p>
-            <p><code>https://github.io</code></p>
+            <p><a href="${FDROID_DEEP_LINK}">Open directly in F-Droid</a></p>
+            <p><code>${REPO_URL}</code></p>
             <h3>All Released Versions</h3>
             <ul>${PAST_LINKS}</ul>
           </body>
           </html>
           EOF
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
