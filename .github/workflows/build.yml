@@ -95,7 +95,6 @@ jobs:
           mkdir -p fdroid/repo
           cp "Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" fdroid/repo/
 
-          # Download all past release APKs from GitHub Releases
           gh release list --limit 50 --json tagName -q '.[].tagName' | while read TAG; do
             if [ "$TAG" != "${{ steps.version.outputs.tag }}" ]; then
               gh release download "$TAG" --pattern "*.apk" --dir fdroid/repo/ || true
@@ -104,11 +103,19 @@ jobs:
 
           cd fdroid
           fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --no-prompt
-          sed -i 's|^#* *repo_url:.*|repo_url: "https://github.io"|g' config.yml
-          sed -i 's|^#* *repo_name:.*|repo_name: "Cadence Mobile"|g' config.yml
-          sed -i 's|^#* *repo_description:.*|repo_description: "Official F-Droid repository for Cadence Mobile"|g' config.yml
-          echo 'keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"' >> config.yml
-          echo 'keypass: "${{ secrets.KEY_PASSWORD }}"' >> config.yml
+
+          python3 -c '
+          with open("config.yml", "r") as f:
+              lines = [l for l in f if not l.lstrip("# ").startswith(("repo_url:", "repo_name:", "repo_description:", "keystorepass:", "keypass:"))]
+          lines.append("repo_url: \"https://github.io\"\n")
+          lines.append("repo_name: \"Cadence Mobile\"\n")
+          lines.append("repo_description: \"Official F-Droid repository for Cadence Mobile\"\n")
+          lines.append("keystorepass: \"${{ secrets.KEY_STORE_PASSWORD }}\"\n")
+          lines.append("keypass: \"${{ secrets.KEY_PASSWORD }}\"\n")
+          with open("config.yml", "w") as f:
+              f.writelines(lines)
+          '
+
           fdroid update --create-metadata --use-date-from-apk
 
           FINGERPRINT=$(keytool -list -v -keystore ../release.jks -alias "${{ secrets.ALIAS }}" -storepass "${{ secrets.KEY_STORE_PASSWORD }}" | grep -m 1 "SHA256:" | sed 's/.*SHA256: //;s/://g')
