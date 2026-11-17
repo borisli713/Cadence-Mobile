@@ -60,17 +60,20 @@ jobs:
       - name: Build F-Droid Repo and Download Page
         run: |
           sudo apt-get update
-          sudo apt-get install -y fdroidserver
+          sudo apt-get install -y fdroidserver qrencode
           mkdir -p fdroid/repo
           cp Cadence-Mobile.apk fdroid/repo/
           cd fdroid
           fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --no-prompt
-          sed -i 's|#repo_url: .*|repo_url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo"|g' config.yml
-          sed -i 's|#repo_name: .*|repo_name: "Cadence Mobile Repo"|g' config.yml
+          echo 'repo_url: "https://borisli713.github.io/Cadence-Mobile/repo"' >> config.yml
+          echo 'repo_name: "Cadence Mobile Repo"' >> config.yml
           echo 'keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"' >> config.yml
           echo 'keypass: "${{ secrets.KEY_PASSWORD }}"' >> config.yml
           fdroid update --create-metadata --use-date-from-apk
-          cat << 'EOF' > index.html
+          FINGERPRINT=$(keytool -list -v -keystore ../release.jks -alias "${{ secrets.ALIAS }}" -storepass "${{ secrets.KEY_STORE_PASSWORD }}" | grep -m 1 "SHA256:" | sed 's/.*SHA256: //;s/://g')
+          REPO_URI="https://github.io{FINGERPRINT}"
+          qrencode -s 6 -o repo-qr.png "$REPO_URI"
+          cat << EOF > index.html
           <!DOCTYPE html>
           <html>
           <head>
@@ -78,17 +81,20 @@ jobs:
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Cadence Mobile</title>
             <style>
-              body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; text-align: center; }
-              .btn { display: inline-block; background: #1976d2; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0; }
-              code { background: #f4f4f4; padding: 4px 8px; border-radius: 4px; word-break: break-all; }
+              body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 0 20px; text-align: center; }
+              .btn { display: inline-block; background: #1976d2; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 16px 0; }
+              .qr { width: 220px; height: 220px; margin: 16px auto; display: block; border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
+              code { background: #f4f4f4; padding: 4px 8px; border-radius: 4px; word-break: break-all; display: inline-block; margin-top: 8px; }
             </style>
           </head>
           <body>
             <h1>Cadence Mobile</h1>
-            <p>Download the plain APK directly or add the F-Droid repository URL below.</p>
-            <a class="btn" href="repo/Cadence-Mobile.apk" download>Download APK</a>
-            <h3>F-Droid Repository URL</h3>
-            <p><code>https://github.io</code></p>
+            <p>Download the plain APK directly or scan the QR code with F-Droid for automatic updates.</p>
+            <a class="btn" href="repo/Cadence-Mobile.apk" download>Download Plain APK</a>
+            <h3>Scan to Add F-Droid Repo</h3>
+            <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code">
+            <p><a href="${REPO_URI}">Open directly in F-Droid</a></p>
+            <p><code>https://borisli713.github.io/Cadence-Mobile/repo</code></p>
           </body>
           </html>
           EOF
