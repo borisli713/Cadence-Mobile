@@ -1,20 +1,28 @@
-name: Build and Sign Android APK
+name: Build APK and Publish F-Droid Repo
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -42,8 +50,33 @@ jobs:
             --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
             --out app-release-signed.apk aligned.apk
 
-      - name: Upload Signed APK
-        uses: actions/upload-artifact@v4
+      - name: Install fdroidserver and Build Repo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fdroidserver
+          mkdir -p fdroid/repo
+          cp app-release-signed.apk fdroid/repo/Cadence-Mobile.apk
+          cd fdroid
+          fdroid init --no-prompt
+          cat <<EOF > config.yml
+          repo_url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo"
+          repo_name: "Cadence Mobile Repo"
+          repo_description: "Personal F-Droid repository for Cadence Mobile"
+          keystore: "../release.jks"
+          repo_keyalias: "${{ secrets.ALIAS }}"
+          keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"
+          keypass: "${{ secrets.KEY_PASSWORD }}"
+          EOF
+          fdroid update --create-metadata --use-date-from-apk
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: signed-release-apk
-          path: app-release-signed.apk
+          path: 'fdroid'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
