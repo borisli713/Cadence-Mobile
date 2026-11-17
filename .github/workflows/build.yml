@@ -104,17 +104,15 @@ jobs:
           cd fdroid
           fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --no-prompt
 
-          python3 -c '
-          with open("config.yml", "r") as f:
-              lines = [l for l in f if not l.lstrip("# ").startswith(("repo_url:", "repo_name:", "repo_description:", "keystorepass:", "keypass:"))]
-          lines.append("repo_url: \"https://github.io\"\n")
-          lines.append("repo_name: \"Cadence Mobile\"\n")
-          lines.append("repo_description: \"Official F-Droid repository for Cadence Mobile\"\n")
-          lines.append("keystorepass: \"${{ secrets.KEY_STORE_PASSWORD }}\"\n")
-          lines.append("keypass: \"${{ secrets.KEY_PASSWORD }}\"\n")
-          with open("config.yml", "w") as f:
-              f.writelines(lines)
-          '
+          cat << EOF > config.yml
+          repo_url: "https://github.io"
+          repo_name: "Cadence Mobile"
+          repo_description: "Official F-Droid repository for Cadence Mobile"
+          keystore: "../release.jks"
+          repo_keyalias: "${{ secrets.ALIAS }}"
+          keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"
+          keypass: "${{ secrets.KEY_PASSWORD }}"
+          EOF
 
           fdroid update --create-metadata --use-date-from-apk
 
