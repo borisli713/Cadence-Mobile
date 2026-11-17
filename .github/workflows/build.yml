@@ -104,7 +104,7 @@ jobs:
           cd fdroid
           printf 'repo_url: "https://github.io"\nrepo_name: "Cadence Mobile"\nrepo_description: "Official F-Droid repository for Cadence Mobile"\nkeystore: "../release.jks"\nrepo_keyalias: "%s"\nkeystorepass: "%s"\nkeypass: "%s"\n' "${{ secrets.ALIAS }}" "${{ secrets.KEY_STORE_PASSWORD }}" "${{ secrets.KEY_PASSWORD }}" > config.yml
 
-          fdroid update --create-metadata --use-date-from-apk
+          fdroid update --config config.yml --create-metadata --use-date-from-apk
 
           FINGERPRINT=$(keytool -list -v -keystore ../release.jks -alias "${{ secrets.ALIAS }}" -storepass "${{ secrets.KEY_STORE_PASSWORD }}" | grep -m 1 "SHA256:" | sed 's/.*SHA256: //;s/://g')
           REPO_URI="https://github.io?fingerprint=${FINGERPRINT}"
