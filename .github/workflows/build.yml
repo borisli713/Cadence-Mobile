@@ -129,9 +129,14 @@ jobs:
           mkdir -p fdroid/repo fdroid/metadata
           cp "Cadence-Mobile-${TAG}.apk" fdroid/repo/
 
+          MIN_VER="1.0.9"
           while IFS= read -r OLD_TAG; do
             if [ -n "$OLD_TAG" ] && [ "$OLD_TAG" != "$TAG" ]; then
-              gh release download "$OLD_TAG" --pattern "*.apk" --dir fdroid/repo/ --skip-existing || true
+              CLEAN_OLD="${OLD_TAG#v}"
+              if [[ "$CLEAN_OLD" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && \
+                 [ "$(printf '%s\n' "$MIN_VER" "$CLEAN_OLD" | sort -V | head -n 1)" = "$MIN_VER" ]; then
+                gh release download "$OLD_TAG" --pattern "*.apk" --dir fdroid/repo/ --skip-existing || true
+              fi
             fi
           done < <(gh release list --limit 50 --json tagName -q '.[].tagName')
 
@@ -145,7 +150,7 @@ jobs:
             fi
           fi
           PAGES_BASE_URL="${PAGES_BASE_URL%/}"
-          REPO_URL="${PAGES_BASE_URL}/repo"
+          REPO_URL="${PAGES_URL:-$PAGES_BASE_URL}/repo"
 
           cd fdroid
           cat << EOF > config.yml
