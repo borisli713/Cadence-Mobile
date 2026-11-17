@@ -1,4 +1,4 @@
-name: Build APK, Release, and Publish F-Droid Repo
+name: Build Versioned APK, Release, and F-Droid Repo
 
 on:
   push:
@@ -20,6 +20,31 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Calculate Next Version (Start 1.0.3, +0.0.1)
+        id: version
+        run: |
+          git fetch --tags
+          LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            NEXT_VER="1.0.3"
+          else
+            CLEAN_VER=${LATEST_TAG#v}
+            MAJOR=$(echo "$CLEAN_VER" | cut -d. -f1)
+            MINOR=$(echo "$CLEAN_VER" | cut -d. -f2)
+            PATCH=$(echo "$CLEAN_VER" | cut -d. -f3)
+            NEXT_PATCH=$((PATCH + 1))
+            NEXT_VER="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          fi
+          MAJOR=$(echo "$NEXT_VER" | cut -d. -f1)
+          MINOR=$(echo "$NEXT_VER" | cut -d. -f2)
+          PATCH=$(echo "$NEXT_VER" | cut -d. -f3)
+          VER_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          echo "name=$NEXT_VER" >> $GITHUB_OUTPUT
+          echo "code=$VER_CODE" >> $GITHUB_OUTPUT
+          echo "tag=v$NEXT_VER" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -35,8 +60,11 @@ jobs:
       - name: Decode google-services.json
         run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > app/google-services.json
 
-      - name: Build Release APK
-        run: gradle assembleRelease
+      - name: Build Versioned Release APK
+        run: |
+          sed -i 's/versionCode = [0-9]*/versionCode = ${{ steps.version.outputs.code }}/g' app/build.gradle.kts
+          sed -i 's/versionName = "[^"]*"/versionName = "${{ steps.version.outputs.name }}"/g' app/build.gradle.kts
+          gradle assembleRelease
 
       - name: Align and Sign APK
         run: |
@@ -48,32 +76,51 @@ jobs:
             --ks-key-alias "${{ secrets.ALIAS }}" \
             --ks-pass "pass:${{ secrets.KEY_STORE_PASSWORD }}" \
             --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-            --out Cadence-Mobile.apk aligned.apk
+            --out "Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" aligned.apk
 
-      - name: Publish Plain APK to GitHub Releases
+      - name: Create New GitHub Release with Source Code
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Build
-          files: Cadence-Mobile.apk
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: Cadence-Mobile-${{ steps.version.outputs.tag }}.apk
 
-      - name: Build F-Droid Repo and Download Page
+      - name: Build F-Droid Repo and Multi-Version Download Page
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y fdroidserver qrencode
+          sudo apt-get install -y fdroidserver qrencode jq
           mkdir -p fdroid/repo
-          cp Cadence-Mobile.apk fdroid/repo/
+          cp "Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" fdroid/repo/
+
+          # Download all past release APKs from GitHub Releases
+          gh release list --limit 50 --json tagName -q '.[].tagName' | while read TAG; do
+            if [ "$TAG" != "${{ steps.version.outputs.tag }}" ]; then
+              gh release download "$TAG" --pattern "*.apk" --dir fdroid/repo/ || true
+            fi
+          done
+
           cd fdroid
           fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --no-prompt
-          sed -i 's|^#* *repo_url:.*|repo_url: "https://borisli713.github.io/Cadence-Mobile/repo"|g' config.yml
+          sed -i 's|^#* *repo_url:.*|repo_url: "https://github.io"|g' config.yml
           sed -i 's|^#* *repo_name:.*|repo_name: "Cadence Mobile"|g' config.yml
           sed -i 's|^#* *repo_description:.*|repo_description: "Official F-Droid repository for Cadence Mobile"|g' config.yml
           echo 'keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"' >> config.yml
           echo 'keypass: "${{ secrets.KEY_PASSWORD }}"' >> config.yml
           fdroid update --create-metadata --use-date-from-apk
+
           FINGERPRINT=$(keytool -list -v -keystore ../release.jks -alias "${{ secrets.ALIAS }}" -storepass "${{ secrets.KEY_STORE_PASSWORD }}" | grep -m 1 "SHA256:" | sed 's/.*SHA256: //;s/://g')
-          REPO_URI="https://github.io{FINGERPRINT}"
+          REPO_URI="https://github.io?fingerprint=${FINGERPRINT}"
           qrencode -s 6 -o repo-qr.png "$REPO_URI"
+
+          PAST_LINKS=""
+          for apk in $(ls -v repo/*.apk | tac); do
+            fname=$(basename "$apk")
+            PAST_LINKS="${PAST_LINKS}<li><a href=\"repo/${fname}\" download>${fname}</a></li>"
+          done
+
           cat << EOF > index.html
           <!DOCTYPE html>
           <html>
@@ -86,16 +133,20 @@ jobs:
               .btn { display: inline-block; background: #1976d2; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 16px 0; }
               .qr { width: 220px; height: 220px; margin: 16px auto; display: block; border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
               code { background: #f4f4f4; padding: 4px 8px; border-radius: 4px; word-break: break-all; display: inline-block; margin-top: 8px; }
+              ul { list-style: none; padding: 0; }
+              li { margin: 8px 0; }
             </style>
           </head>
           <body>
             <h1>Cadence Mobile</h1>
-            <p>Download the plain APK directly or scan the QR code with F-Droid for automatic updates.</p>
-            <a class="btn" href="repo/Cadence-Mobile.apk" download>Download Plain APK</a>
+            <p>Latest Version: <strong>${{ steps.version.outputs.tag }}</strong></p>
+            <a class="btn" href="repo/Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" download>Download Latest APK (${{ steps.version.outputs.tag }})</a>
             <h3>Scan to Add F-Droid Repo</h3>
             <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code">
             <p><a href="${REPO_URI}">Open directly in F-Droid</a></p>
-            <p><code>https://borisli713.github.io/Cadence-Mobile/repo</code></p>
+            <p><code>https://github.io</code></p>
+            <h3>All Released Versions</h3>
+            <ul>${PAST_LINKS}</ul>
           </body>
           </html>
           EOF
