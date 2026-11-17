@@ -1,4 +1,4 @@
-name: Build APK and Publish F-Droid Repo
+name: Build APK, Release, and Publish F-Droid Repo
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -48,26 +48,27 @@ jobs:
             --ks-key-alias "${{ secrets.ALIAS }}" \
             --ks-pass "pass:${{ secrets.KEY_STORE_PASSWORD }}" \
             --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-            --out app-release-signed.apk aligned.apk
+            --out Cadence-Mobile.apk aligned.apk
 
-      - name: Install fdroidserver and Build Repo
+      - name: Publish Plain APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: Cadence-Mobile.apk
+
+      - name: Build F-Droid Repo and Download Page
         run: |
           sudo apt-get update
           sudo apt-get install -y fdroidserver
           mkdir -p fdroid/repo
-          cp app-release-signed.apk fdroid/repo/Cadence-Mobile.apk
+          cp Cadence-Mobile.apk fdroid/repo/
           cd fdroid
-          fdroid init --no-prompt
-          cat <<EOF > config.yml
-          repo_url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo"
-          repo_name: "Cadence Mobile Repo"
-          repo_description: "Personal F-Droid repository for Cadence Mobile"
-          keystore: "../release.jks"
-          repo_keyalias: "${{ secrets.ALIAS }}"
-          keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"
-          keypass: "${{ secrets.KEY_PASSWORD }}"
-          EOF
+          fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --keystorepass "${{ secrets.KEY_STORE_PASSWORD }}" --keypass "${{ secrets.KEY_PASSWORD }}" --no-prompt
+          sed -i 's|#repo_url = .*|repo_url = "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo"|g' config.yml
+          sed -i 's|#repo_name = .*|repo_name = "Cadence Mobile Repo"|g' config.yml
           fdroid update --create-metadata --use-date-from-apk
+          printf '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cadence Mobile</title><style>body{font-family:sans-serif;max-width:600px;margin:60px auto;padding:0 20px;text-align:center}.btn{display:inline-block;background:#1976d2;color:#fff;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;margin:20px 0}code{background:#f4f4f4;padding:4px 8px;border-radius:4px;word-break:break-all}</style></head><body><h1>Cadence Mobile</h1><p>Download the plain APK directly or add the F-Droid repository URL below.</p><a class="btn" href="repo/Cadence-Mobile.apk" download>Download APK</a><h3>F-Droid Repository URL</h3><p><code>https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo</code></p></body></html>' > index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
