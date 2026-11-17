@@ -175,13 +175,20 @@ object GoogleAuthHelper {
             } catch (e: GetCredentialCancellationException) {
                 val detail = e.errorMessage?.toString().orEmpty()
                 Log.w(TAG, "Google Sign-In cancelled or rejected by Play Services: $detail", e)
-                val userHint = if (detail.contains("cancel", ignoreCase = true) || detail.isBlank()) {
-                    "Google Sign-In did not complete. If it closed right after picking an account, verify this build's SHA-1 fingerprint is added in Firebase Console, or sign in with Email & Password."
-                } else {
-                    "Google Sign-In cancelled ($detail)."
-                }
+                val isUserDismissal = detail.contains("activity is cancelled by the user", ignoreCase = true) ||
+                    detail.contains("canceled by the user", ignoreCase = true) ||
+                    detail.contains("cancelled by the user", ignoreCase = true)
                 withContext(Dispatchers.Main) {
-                    onAuthCancelled(userHint)
+                    if (isUserDismissal) {
+                        onAuthCancelled(null)
+                    } else {
+                        val extraHint = if (detail.contains("16") || detail.contains("reauth", ignoreCase = true)) {
+                            " This usually means the APK's signing SHA-1 certificate is not registered in Firebase Console (especially for release builds), or Google Play Services needs account re-auth / cache clear."
+                        } else {
+                            ""
+                        }
+                        onAuthError("Google Sign-In failed (${detail.ifBlank { "cancelled by Play Services" }}).$extraHint")
+                    }
                 }
             } catch (e: NoCredentialException) {
                 Log.w(TAG, "No Google credentials found on device", e)
