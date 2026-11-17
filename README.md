@@ -24,10 +24,6 @@ Cadence is a native Android application built with **Kotlin**, **Jetpack Compose
 - **Auth**: Firebase Authentication with Google Sign-In via Credential Manager
 - **Testing**: Local JVM Robolectric + Firebase Emulator integration tests (`CadenceRepositoryRuleTest`)
 
-## Building
+## Download
 
-```bash
-gradle assembleDebug
-```
-
-The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+The released APK is available at https://borisli713.github.io/Cadence-Mobile/.
