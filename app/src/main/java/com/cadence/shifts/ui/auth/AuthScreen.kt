@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MarkEmailUnread
 import androidx.compose.material.icons.rounded.Person
@@ -126,11 +127,10 @@ fun AuthScreen(
     var showPassword by remember { mutableStateOf(false) }
 
     var isEmailBusy by remember { mutableStateOf(false) }
-    var isGoogleBusy by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
 
-    val isBusy = isEmailBusy || isGoogleBusy
+    val isBusy = isEmailBusy
 
     fun submitEmailAuth() {
         focusManager.clearFocus()
@@ -603,65 +603,61 @@ fun AuthScreen(
                                 HorizontalDivider(modifier = Modifier.weight(1f), color = Slate200)
                             }
 
-                            OutlinedButton(
-                                onClick = {
-                                    errorMessage = null
-                                    infoMessage = null
-                                    isGoogleBusy = true
-                                    GoogleAuthHelper.onGoogleSignInClicked(
-                                        context = context,
-                                        credentialManager = credentialManager,
-                                        onAuthSuccess = {
-                                            isGoogleBusy = false
-                                            onAuthSuccess()
-                                        },
-                                        onAuthError = { msg ->
-                                            isGoogleBusy = false
-                                            errorMessage = msg
-                                        },
-                                        scope = scope,
-                                        onAuthCancelled = { hint ->
-                                            isGoogleBusy = false
-                                            if (!hint.isNullOrBlank()) {
-                                                errorMessage = hint
-                                            }
-                                        }
+                            Surface(
+                                color = Amber50,
+                                shape = MaterialTheme.shapes.small,
+                                border = BorderStroke(1.dp, Amber700.copy(alpha = 0.25f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("google_sign_in_suspended_banner")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Info,
+                                        contentDescription = null,
+                                        tint = Amber700,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                },
-                                enabled = !isBusy,
+                                    Text(
+                                        text = stringResource(R.string.google_sign_in_suspended_message),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Amber700
+                                    )
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = {},
+                                enabled = false,
                                 shape = MaterialTheme.shapes.medium,
                                 border = BorderStroke(1.dp, Slate200),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = PureWhite,
-                                    contentColor = Slate900
+                                    containerColor = Slate100,
+                                    contentColor = Slate500,
+                                    disabledContainerColor = Slate100,
+                                    disabledContentColor = Slate500
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(52.dp)
                                     .testTag("google_sign_in_button")
                             ) {
-                                if (isGoogleBusy) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        color = Slate900,
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text("Connecting Google…", style = MaterialTheme.typography.labelLarge)
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Rounded.VerifiedUser,
-                                        contentDescription = null,
-                                        tint = Blue700,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = stringResource(R.string.sign_in_with_google),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = Slate500,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "${stringResource(R.string.sign_in_with_google)} (${stringResource(R.string.google_sign_in_suspended_badge)})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
 
                             Text(

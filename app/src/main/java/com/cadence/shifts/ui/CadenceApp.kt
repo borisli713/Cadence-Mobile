@@ -130,8 +130,6 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 fun CadenceApp() {
     val auth = Firebase.auth
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val currentUser by auth.authStateFlow()
         .collectAsStateWithLifecycle(initialValue = auth.currentUser)
@@ -139,15 +137,6 @@ fun CadenceApp() {
 
     LaunchedEffect(Unit) {
         NotificationHelper.ensureChannel(context)
-        if (auth.currentUser == null) {
-            GoogleAuthHelper.attemptAutoSignIn(
-                context = context,
-                credentialManager = credentialManager,
-                onAuthSuccess = { verificationTick++ },
-                onUnauthenticated = {},
-                scope = scope
-            )
-        }
     }
 
     val user = currentUser
