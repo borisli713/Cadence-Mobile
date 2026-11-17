@@ -32,16 +32,21 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags
+          BASE_VER="1.1.0"
           LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
           if [ -z "$LATEST_TAG" ]; then
-            NEXT_VER="1.1.0"
+            NEXT_VER="$BASE_VER"
           else
             CLEAN_VER=${LATEST_TAG#v}
-            MAJOR=$(echo "$CLEAN_VER" | cut -d. -f1)
-            MINOR=$(echo "$CLEAN_VER" | cut -d. -f2)
-            PATCH=$(echo "$CLEAN_VER" | cut -d. -f3)
-            NEXT_PATCH=$((10#$PATCH + 1))
-            NEXT_VER="$((10#$MAJOR)).$((10#$MINOR)).${NEXT_PATCH}"
+            if [ "$(printf '%s\n' "$BASE_VER" "$CLEAN_VER" | sort -V | head -n 1)" = "$CLEAN_VER" ] && [ "$CLEAN_VER" != "$BASE_VER" ]; then
+              NEXT_VER="$BASE_VER"
+            else
+              MAJOR=$(echo "$CLEAN_VER" | cut -d. -f1)
+              MINOR=$(echo "$CLEAN_VER" | cut -d. -f2)
+              PATCH=$(echo "$CLEAN_VER" | cut -d. -f3)
+              NEXT_PATCH=$((10#$PATCH + 1))
+              NEXT_VER="$((10#$MAJOR)).$((10#$MINOR)).${NEXT_PATCH}"
+            fi
           fi
           MAJOR=$(echo "$NEXT_VER" | cut -d. -f1)
           MINOR=$(echo "$NEXT_VER" | cut -d. -f2)
@@ -134,6 +139,7 @@ jobs:
             if [ -n "$OLD_TAG" ] && [ "$OLD_TAG" != "$TAG" ]; then
               CLEAN_OLD="${OLD_TAG#v}"
               if [[ "$CLEAN_OLD" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && \
+                 [ "$CLEAN_OLD" != "1.0.12" ] && \
                  [ "$(printf '%s\n' "$MIN_VER" "$CLEAN_OLD" | sort -V | head -n 1)" = "$MIN_VER" ]; then
                 gh release download "$OLD_TAG" --pattern "*.apk" --dir fdroid/repo/ --skip-existing || true
               fi
