@@ -10,8 +10,6 @@
     <string name="sign_in_with_email">Sign In</string>
     <string name="sign_up_with_email">Create Account</string>
     <string name="sign_in_with_google">Continue with Google</string>
-    <string name="google_sign_in_suspended_badge">Suspended</string>
-    <string name="google_sign_in_suspended_message">Google Sign-In is temporarily suspended. Please sign in or create an account using your email and password.</string>
     <string name="auth_footer_note">Email accounts require email verification before accessing your team schedule.</string>
     <string name="verify_email_title">Verify Your Email</string>
     <string name="verify_email_check_button">I\'ve Verified My Email</string>
