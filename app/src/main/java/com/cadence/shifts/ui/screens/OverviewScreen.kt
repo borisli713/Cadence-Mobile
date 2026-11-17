@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -63,6 +64,7 @@ fun OverviewScreen(
     data: WorkspaceUiData,
     onNavigateToSchedule: () -> Unit,
     onNavigateToApprovals: () -> Unit,
+    onNavigateToHistory: () -> Unit,
     onNavigateToTimeOff: () -> Unit,
     onNavigateToNotifications: () -> Unit,
     onOpenLogReport: () -> Unit,
@@ -165,6 +167,15 @@ fun OverviewScreen(
                         Icon(Icons.Rounded.EventAvailable, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Time Off (${data.pendingTimeOffCount})")
+                    }
+
+                    OutlinedButton(
+                        onClick = onNavigateToHistory,
+                        modifier = Modifier.testTag("overview_shift_history_button")
+                    ) {
+                        Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Shift History")
                     }
                 }
             }

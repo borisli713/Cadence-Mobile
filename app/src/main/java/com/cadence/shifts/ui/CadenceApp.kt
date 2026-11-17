@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Settings
@@ -86,6 +87,7 @@ import com.cadence.shifts.ui.screens.ManagerApprovalsScreen
 import com.cadence.shifts.ui.screens.NotificationsScreen
 import com.cadence.shifts.ui.screens.OverviewScreen
 import com.cadence.shifts.ui.screens.ScheduleFairnessScreen
+import com.cadence.shifts.ui.screens.ShiftHistoryScreen
 import com.cadence.shifts.ui.screens.ShiftReportsScreen
 import com.cadence.shifts.ui.screens.TeamHoursScreen
 import com.cadence.shifts.ui.screens.TimeOffRequestsScreen
@@ -113,6 +115,7 @@ enum class CadenceTab(val route: String, val label: String, val icon: ImageVecto
     SCHEDULE("schedule", "Schedule", Icons.Rounded.CalendarMonth),
     REPORTS("reports", "Reports", Icons.Rounded.Assignment),
     APPROVALS("approvals", "Approvals", Icons.Rounded.FactCheck),
+    HISTORY("history", "Shift History", Icons.Rounded.History),
     TEAM("team", "Team", Icons.Rounded.Groups),
     TIME_OFF("time_off", "Time Off", Icons.Rounded.EventBusy),
     NOTIFICATIONS("notifications", "Alerts", Icons.Rounded.Notifications)
@@ -357,6 +360,13 @@ private fun WorkspaceRoot(
                             actions = {
                                 if (!useRail) {
                                     IconButton(
+                                        onClick = { activeTab = CadenceTab.HISTORY },
+                                        modifier = Modifier.testTag("top_history_button")
+                                    ) {
+                                        Icon(Icons.Rounded.History, contentDescription = "Shift History")
+                                    }
+
+                                    IconButton(
                                         onClick = { activeTab = CadenceTab.TIME_OFF },
                                         modifier = Modifier.testTag("top_timeoff_button")
                                     ) {
@@ -484,6 +494,7 @@ private fun WorkspaceRoot(
                                         data = data,
                                         onNavigateToSchedule = { activeTab = CadenceTab.SCHEDULE },
                                         onNavigateToApprovals = { activeTab = CadenceTab.APPROVALS },
+                                        onNavigateToHistory = { activeTab = CadenceTab.HISTORY },
                                         onNavigateToTimeOff = { activeTab = CadenceTab.TIME_OFF },
                                         onNavigateToNotifications = { activeTab = CadenceTab.NOTIFICATIONS },
                                         onOpenLogReport = {
@@ -523,7 +534,12 @@ private fun WorkspaceRoot(
                                         busyAction = busyAction,
                                         onAcceptAll = viewModel::acceptAllPendingChanges,
                                         onDecide = viewModel::decideScheduleChange,
-                                        onSubmitScheduleChange = viewModel::submitScheduleChange
+                                        onSubmitScheduleChange = viewModel::submitScheduleChange,
+                                        onNavigateToHistory = { activeTab = CadenceTab.HISTORY }
+                                    )
+
+                                    CadenceTab.HISTORY -> ShiftHistoryScreen(
+                                        data = data
                                     )
 
                                     CadenceTab.TIME_OFF -> TimeOffRequestsScreen(

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -69,7 +70,8 @@ fun ManagerApprovalsScreen(
     busyAction: String?,
     onAcceptAll: () -> Unit,
     onDecide: (ScheduleChangeRequest, ApprovalStatus, String) -> Unit,
-    onSubmitScheduleChange: (Shift, ScheduleChangeType, String, String, String, String, String, String) -> Unit
+    onSubmitScheduleChange: (Shift, ScheduleChangeType, String, String, String, String, String, String) -> Unit,
+    onNavigateToHistory: () -> Unit
 ) {
     var filter by remember { mutableStateOf(ApprovalFilter.PENDING) }
     val reviewNotes = remember { mutableStateMapOf<String, String>() }
@@ -132,18 +134,32 @@ fun ManagerApprovalsScreen(
                     }
                 }
 
-                if (data.shifts.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (data.shifts.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = {
+                                requestDialogShift = data.shifts.firstOrNull { it.assignedUid == data.profile.uid }
+                                    ?: data.shifts.firstOrNull()
+                            },
+                            enabled = busyAction == null,
+                            modifier = Modifier.testTag("approvals_new_request_button")
+                        ) {
+                            Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("New Change Request")
+                        }
+                    }
+
                     OutlinedButton(
-                        onClick = {
-                            requestDialogShift = data.shifts.firstOrNull { it.assignedUid == data.profile.uid }
-                                ?: data.shifts.firstOrNull()
-                        },
-                        enabled = busyAction == null,
-                        modifier = Modifier.testTag("approvals_new_request_button")
+                        onClick = onNavigateToHistory,
+                        modifier = Modifier.testTag("approvals_shift_history_button")
                     ) {
-                        Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("New Change Request")
+                        Text("Shift History")
                     }
                 }
 

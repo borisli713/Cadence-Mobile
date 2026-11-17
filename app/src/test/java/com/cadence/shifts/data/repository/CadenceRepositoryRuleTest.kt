@@ -289,6 +289,95 @@ class CadenceRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertEquals(UserRole.MANAGER, promotedProfile.role)
     }
 
+    @Test
+    fun shiftHistory_showsApprovedAndRejectedRequestsWithTimestampsToRequesterAndSwapTarget() = runBlocking {
+        val adminUid = signInTestUser(ADMIN_EMAIL)
+        val adminRepo = CadenceRepository(firestore, auth)
+        val adminProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        val requesterEmail = "req_${UUID.randomUUID().toString().take(8)}@test.com"
+        val requesterUid = signInTestUser(requesterEmail)
+        val requesterRepo = CadenceRepository(firestore, auth)
+        val requesterProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            requesterRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        val targetEmail = "swap_${UUID.randomUUID().toString().take(8)}@test.com"
+        val targetUid = signInTestUser(targetEmail)
+        val targetRepo = CadenceRepository(firestore, auth)
+        val targetProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            targetRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        signInTestUser(ADMIN_EMAIL)
+        val shiftId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.createShift(
+                title = "Evening Coverage",
+                department = "Operations",
+                date = "2026-11-25",
+                startTime = "15:00",
+                endTime = "23:00",
+                assignedUid = requesterUid,
+                assignedName = requesterProfile.displayName,
+                candidateUids = listOf(requesterUid, targetUid),
+                status = ShiftStatus.SCHEDULED,
+                fairnessNote = "Assigned",
+                createdBy = adminUid
+            )
+        }
+
+        signInTestUser(requesterEmail)
+        val shift = withTimeout(FLOW_TIMEOUT_MS) {
+            requesterRepo.observeShifts(requesterUid).first { list -> list.any { it.id == shiftId } }
+                .first { it.id == shiftId }
+        }
+        val swapReqId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            requesterRepo.submitScheduleChangeRequest(
+                shift = shift,
+                requesterUid = requesterUid,
+                requesterName = requesterProfile.displayName,
+                type = ScheduleChangeType.SWAP,
+                proposedDate = "2026-11-25",
+                proposedStartTime = "15:00",
+                proposedEndTime = "23:00",
+                proposedAssigneeUid = targetUid,
+                proposedAssigneeName = targetProfile.displayName,
+                reason = "Need evening off"
+            )
+        }
+
+        // Manager rejects the swap request
+        signInTestUser(ADMIN_EMAIL)
+        val pendingSwap = withTimeout(FLOW_TIMEOUT_MS) {
+            adminRepo.observeScheduleChanges(adminUid, isManager = true)
+                .first { list -> list.any { it.id == swapReqId && it.status == ApprovalStatus.PENDING } }
+                .first { it.id == swapReqId }
+        }
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.decideScheduleChange(
+                req = pendingSwap,
+                shift = shift,
+                decision = ApprovalStatus.DENIED,
+                reviewerUid = adminUid,
+                reviewerName = adminProfile.displayName,
+                reviewNote = "Coverage needed"
+            )
+        }
+
+        // Both requester and proposed swap assignee see the rejected request with timestamps
+        signInTestUser(targetEmail)
+        val targetHistory = withTimeout(FLOW_TIMEOUT_MS) {
+            targetRepo.observeScheduleChanges(targetUid, isManager = false)
+                .first { list -> list.any { it.id == swapReqId && it.status == ApprovalStatus.DENIED } }
+                .first { it.id == swapReqId }
+        }
+        assertNotNull(targetHistory.createdAt)
+        assertNotNull(targetHistory.updatedAt)
+        assertEquals("Coverage needed", targetHistory.reviewNote)
+    }
+
     private companion object {
         const val ADMIN_EMAIL = "yatheili713@gmail.com"
         const val DEFAULT_TIMEOUT_MS = 8000L

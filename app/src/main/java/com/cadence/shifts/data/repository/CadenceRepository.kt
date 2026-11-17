@@ -112,17 +112,27 @@ class CadenceRepository(
             .withFirestoreLogging(OperationType.LIST, "shifts", uid)
 
     fun observeScheduleChanges(uid: String, isManager: Boolean): Flow<List<ScheduleChangeRequest>> {
-        val query = if (isManager) {
-            db.collection("scheduleChanges")
-        } else {
-            db.collection("scheduleChanges").whereEqualTo("requesterUid", uid)
+        if (isManager) {
+            return db.collection("scheduleChanges")
+                .snapshots()
+                .map { snap ->
+                    snap.documents.mapNotNull { it.toScheduleChangeRequest() }
+                        .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+                }
+                .withFirestoreLogging(OperationType.LIST, "scheduleChanges", uid)
         }
-        return query.snapshots()
-            .map { snap ->
-                snap.documents.mapNotNull { it.toScheduleChangeRequest() }
-                    .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
-            }
-            .withFirestoreLogging(OperationType.LIST, "scheduleChanges", uid)
+        val requestedStream = db.collection("scheduleChanges")
+            .whereEqualTo("requesterUid", uid)
+            .snapshots()
+        val swapTargetStream = db.collection("scheduleChanges")
+            .whereEqualTo("proposedAssigneeUid", uid)
+            .snapshots()
+        return combine(requestedStream, swapTargetStream) { reqSnap, swapSnap ->
+            val byId = LinkedHashMap<String, ScheduleChangeRequest>()
+            reqSnap.documents.mapNotNull { it.toScheduleChangeRequest() }.forEach { byId[it.id] = it }
+            swapSnap.documents.mapNotNull { it.toScheduleChangeRequest() }.forEach { byId[it.id] = it }
+            byId.values.sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+        }.withFirestoreLogging(OperationType.LIST, "scheduleChanges", uid)
     }
 
     fun observeShiftReports(uid: String, isManager: Boolean): Flow<List<ShiftReport>> {
