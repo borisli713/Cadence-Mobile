@@ -92,7 +92,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fdroidserver qrencode jq
-          mkdir -p fdroid/repo
+          mkdir -p fdroid/repo fdroid/metadata
           cp "Cadence-Mobile-${{ steps.version.outputs.tag }}.apk" fdroid/repo/
 
           gh release list --limit 50 --json tagName -q '.[].tagName' | while read TAG; do
@@ -102,17 +102,7 @@ jobs:
           done
 
           cd fdroid
-          fdroid init --keystore ../release.jks --repo-keyalias "${{ secrets.ALIAS }}" --no-prompt
-
-          cat << EOF > config.yml
-          repo_url: "https://github.io"
-          repo_name: "Cadence Mobile"
-          repo_description: "Official F-Droid repository for Cadence Mobile"
-          keystore: "../release.jks"
-          repo_keyalias: "${{ secrets.ALIAS }}"
-          keystorepass: "${{ secrets.KEY_STORE_PASSWORD }}"
-          keypass: "${{ secrets.KEY_PASSWORD }}"
-          EOF
+          printf 'repo_url: "https://github.io"\nrepo_name: "Cadence Mobile"\nrepo_description: "Official F-Droid repository for Cadence Mobile"\nkeystore: "../release.jks"\nrepo_keyalias: "%s"\nkeystorepass: "%s"\nkeypass: "%s"\n' "${{ secrets.ALIAS }}" "${{ secrets.KEY_STORE_PASSWORD }}" "${{ secrets.KEY_PASSWORD }}" > config.yml
 
           fdroid update --create-metadata --use-date-from-apk
 
