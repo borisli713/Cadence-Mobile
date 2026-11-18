@@ -1,6 +1,6 @@
 ![Cadence Mobile — Android App for Shift Reporting & Management](assets/Cadence-Mobile.jpg)
 
-# Cadence — Shift Reporting & Fair Scheduling (Android)# Cadence — Shift Reporting & Fair Scheduling (Android)
+# Cadence — Shift Reporting & Fair Scheduling (Android)
 
 Cadence is a native Android application built with **Kotlin**, **Jetpack Compose (Material 3)**, and **Firebase (Firestore + Google Sign-In)** for shift reporting, manager approvals, push notifications, and fairness-balanced overlap scheduling.
 
