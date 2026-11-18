@@ -190,45 +190,392 @@ jobs:
           PAST_LINKS=""
           while IFS= read -r apk; do
             fname=$(basename "$apk")
-            PAST_LINKS="${PAST_LINKS}<li><a href=\"repo/${fname}\" download>${fname}</a></li>"
+            PAST_LINKS="${PAST_LINKS}<li><a href=\"repo/${fname}\" download><span class=\"ver-name\">${fname}</span><span class=\"ver-dl\">Download</span></a></li>"
           done < <(ls -1v repo/*.apk | tac)
 
           cat << EOF > index.html
           <!DOCTYPE html>
-          <html>
+          <html lang="en">
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Cadence Mobile</title>
             <style>
-              body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 0 20px; text-align: center; }
-              .btn { display: inline-block; background: #1976d2; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 16px 0; }
-              .github-link { display: inline-flex; align-items: center; gap: 8px; color: #24292f; text-decoration: none; font-weight: 600; padding: 8px 14px; border: 1px solid #d0d7de; border-radius: 8px; margin: 4px 0 8px; }
-              .github-link:hover { background: #f6f8fa; }
-              .qr { width: 220px; height: 220px; margin: 16px auto; display: block; border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
-              code { background: #f4f4f4; padding: 4px 8px; border-radius: 4px; word-break: break-all; display: inline-block; margin-top: 8px; }
-              ul { list-style: none; padding: 0; }
-              li { margin: 8px 0; }
+              :root {
+                --bg: #f4f7fb;
+                --card: rgba(255, 255, 255, 0.82);
+                --card-border: rgba(15, 23, 42, 0.08);
+                --text: #0f172a;
+                --muted: #475569;
+                --accent: #2563eb;
+                --accent-2: #4f46e5;
+                --pill-bg: rgba(37, 99, 235, 0.1);
+                --pill-text: #1d4ed8;
+                --item-bg: rgba(248, 250, 252, 0.9);
+                --item-hover: #ffffff;
+                --code-bg: #eef2f7;
+                --shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+              }
+              @media (prefers-color-scheme: dark) {
+                :root {
+                  --bg: #0b1120;
+                  --card: rgba(15, 23, 42, 0.78);
+                  --card-border: rgba(148, 163, 184, 0.14);
+                  --text: #f1f5f9;
+                  --muted: #94a3b8;
+                  --accent: #3b82f6;
+                  --accent-2: #6366f1;
+                  --pill-bg: rgba(59, 130, 246, 0.16);
+                  --pill-text: #93c5fd;
+                  --item-bg: rgba(30, 41, 59, 0.65);
+                  --item-hover: rgba(30, 41, 59, 0.95);
+                  --code-bg: #1e293b;
+                  --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+                }
+              }
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                min-height: 100vh;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                overflow-x: hidden;
+                position: relative;
+                line-height: 1.5;
+              }
+              .bg-orb {
+                position: fixed;
+                border-radius: 50%;
+                filter: blur(80px);
+                opacity: 0.45;
+                z-index: -1;
+                pointer-events: none;
+                animation: floatOrb 12s ease-in-out infinite alternate;
+              }
+              .orb-1 {
+                width: 340px;
+                height: 340px;
+                background: radial-gradient(circle, #3b82f6, transparent 70%);
+                top: -90px;
+                left: -80px;
+              }
+              .orb-2 {
+                width: 380px;
+                height: 380px;
+                background: radial-gradient(circle, #8b5cf6, transparent 70%);
+                bottom: -100px;
+                right: -90px;
+                animation-delay: -6s;
+              }
+              .container {
+                max-width: 620px;
+                margin: 0 auto;
+                padding: 44px 18px 64px;
+              }
+              .card {
+                background: var(--card);
+                border: 1px solid var(--card-border);
+                border-radius: 22px;
+                padding: 28px 24px;
+                margin-bottom: 20px;
+                box-shadow: var(--shadow);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                text-align: center;
+                animation: fadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+              }
+              .card-fdroid { animation-delay: 0.1s; }
+              .card-releases { animation-delay: 0.2s; text-align: left; }
+              .top-bar {
+                display: flex;
+                justify-content: center;
+                margin-bottom: 14px;
+              }
+              .github-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--text);
+                background: var(--item-bg);
+                border: 1px solid var(--card-border);
+                text-decoration: none;
+                font-size: 0.9rem;
+                font-weight: 600;
+                padding: 8px 15px;
+                border-radius: 999px;
+                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+              }
+              .github-link:hover {
+                transform: translateY(-2px);
+                background: var(--item-hover);
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+              }
+              .github-link svg {
+                transition: transform 0.25s ease;
+              }
+              .github-link:hover svg {
+                transform: scale(1.1) rotate(-6deg);
+              }
+              h1 {
+                margin: 0 0 12px;
+                font-size: 2rem;
+                font-weight: 800;
+                letter-spacing: -0.02em;
+              }
+              .version-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                background: var(--pill-bg);
+                color: var(--pill-text);
+                font-weight: 600;
+                font-size: 0.92rem;
+                padding: 6px 14px;
+                border-radius: 999px;
+                margin-bottom: 22px;
+              }
+              .pulse-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #22c55e;
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+                animation: pulseDot 2s infinite;
+              }
+              .btn {
+                position: relative;
+                overflow: hidden;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                color: #ffffff;
+                padding: 15px 28px;
+                text-decoration: none;
+                border-radius: 14px;
+                font-weight: 700;
+                font-size: 1rem;
+                box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+              }
+              .btn::after {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 40%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+                animation: shimmer 3.8s infinite;
+              }
+              .btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 14px 30px rgba(37, 99, 235, 0.36);
+              }
+              .btn:active {
+                transform: translateY(0);
+              }
+              h3 {
+                margin: 0 0 14px;
+                font-size: 1.15rem;
+                font-weight: 700;
+              }
+              .subtitle {
+                margin: -6px 0 18px;
+                font-size: 0.92rem;
+                color: var(--muted);
+              }
+              .qr-wrap {
+                display: inline-block;
+                background: #ffffff;
+                padding: 12px;
+                border-radius: 18px;
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+                margin-bottom: 18px;
+                transition: transform 0.25s ease;
+              }
+              .qr-wrap:hover {
+                transform: scale(1.03);
+              }
+              .qr {
+                width: 200px;
+                height: 200px;
+                display: block;
+              }
+              .fdroid-actions {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 10px;
+                margin-bottom: 16px;
+              }
+              .btn-secondary {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                background: var(--pill-bg);
+                color: var(--pill-text);
+                border: none;
+                padding: 10px 16px;
+                border-radius: 10px;
+                font-size: 0.92rem;
+                font-weight: 600;
+                text-decoration: none;
+                cursor: pointer;
+                font-family: inherit;
+                transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
+              }
+              .btn-secondary:hover {
+                transform: translateY(-1px);
+                opacity: 0.9;
+              }
+              .btn-secondary.copied {
+                background: rgba(34, 197, 94, 0.16);
+                color: #16a34a;
+              }
+              code {
+                background: var(--code-bg);
+                color: var(--muted);
+                padding: 8px 12px;
+                border-radius: 10px;
+                font-size: 0.82rem;
+                word-break: break-all;
+                display: inline-block;
+                max-width: 100%;
+              }
+              ul {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+              }
+              li a {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 13px 16px;
+                background: var(--item-bg);
+                border: 1px solid var(--card-border);
+                border-radius: 12px;
+                color: var(--text);
+                text-decoration: none;
+                font-size: 0.94rem;
+                font-weight: 500;
+                transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+              }
+              li a:hover {
+                transform: translateX(4px);
+                background: var(--item-hover);
+                border-color: var(--accent);
+              }
+              .ver-name {
+                word-break: break-all;
+              }
+              .ver-dl {
+                flex-shrink: 0;
+                font-size: 0.8rem;
+                font-weight: 700;
+                color: var(--pill-text);
+                background: var(--pill-bg);
+                padding: 4px 10px;
+                border-radius: 8px;
+              }
+              @keyframes fadeUp {
+                from { opacity: 0; transform: translateY(18px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+              @keyframes floatOrb {
+                from { transform: translate(0, 0) scale(1); }
+                to { transform: translate(28px, 24px) scale(1.08); }
+              }
+              @keyframes pulseDot {
+                0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.65); }
+                70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+              }
+              @keyframes shimmer {
+                0% { transform: translateX(-120%) skewX(-18deg); }
+                45%, 100% { transform: translateX(320%) skewX(-18deg); }
+              }
+              @media (prefers-reduced-motion: reduce) {
+                *, *::before, *::after {
+                  animation: none !important;
+                  transition: none !important;
+                }
+              }
             </style>
           </head>
           <body>
-            <h1>Cadence Mobile</h1>
-            <p>
-              <a class="github-link" href="https://github.com/borisli713/Cadence-Mobile" aria-label="View Cadence Mobile on GitHub">
-                <svg viewBox="0 0 16 16" width="22" height="22" fill="currentColor" aria-hidden="true">
-                  <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
-                </svg>
-                <span>View on GitHub</span>
-              </a>
-            </p>
-            <p>Latest Version: <strong>${TAG}</strong></p>
-            <a class="btn" href="repo/Cadence-Mobile-${TAG}.apk" download>Download Latest APK (${TAG})</a>
-            <h3>Scan to Add F-Droid Repo</h3>
-            <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code">
-            <p><a href="${FDROID_DEEP_LINK}">Open directly in F-Droid</a></p>
-            <p><code>${REPO_URL}</code></p>
-            <h3>All Released Versions</h3>
-            <ul>${PAST_LINKS}</ul>
+            <div class="bg-orb orb-1"></div>
+            <div class="bg-orb orb-2"></div>
+
+            <main class="container">
+              <section class="card">
+                <div class="top-bar">
+                  <a class="github-link" href="https://github.com/borisli713/Cadence-Mobile" aria-label="View Cadence Mobile on GitHub">
+                    <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
+                      <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                    </svg>
+                    <span>View on GitHub</span>
+                  </a>
+                </div>
+                <h1>Cadence Mobile</h1>
+                <div class="version-badge">
+                  <span class="pulse-dot"></span>
+                  <span>Latest Version: ${TAG}</span>
+                </div>
+                <div>
+                  <a class="btn" href="repo/Cadence-Mobile-${TAG}.apk" download>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span>Download Latest APK (${TAG})</span>
+                  </a>
+                </div>
+              </section>
+
+              <section class="card card-fdroid">
+                <h3>F-Droid Repository</h3>
+                <p class="subtitle">Scan the QR code or add the repo in F-Droid for automatic updates</p>
+                <div class="qr-wrap">
+                  <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code">
+                </div>
+                <div class="fdroid-actions">
+                  <a class="btn-secondary" href="${FDROID_DEEP_LINK}">Open in F-Droid</a>
+                  <button type="button" id="copy-btn" class="btn-secondary" onclick="copyRepoUrl()">Copy Repo URL</button>
+                </div>
+                <code id="repo-url">${REPO_URL}</code>
+              </section>
+
+              <section class="card card-releases">
+                <h3>All Released Versions</h3>
+                <ul>${PAST_LINKS}</ul>
+              </section>
+            </main>
+
+            <script>
+              function copyRepoUrl() {
+                var url = document.getElementById('repo-url').textContent;
+                var btn = document.getElementById('copy-btn');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(url).then(function() {
+                    btn.textContent = 'Copied!';
+                    btn.classList.add('copied');
+                    setTimeout(function() {
+                      btn.textContent = 'Copy Repo URL';
+                      btn.classList.remove('copied');
+                    }, 2000);
+                  });
+                }
+              }
+            </script>
           </body>
           </html>
           EOF
