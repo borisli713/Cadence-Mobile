@@ -1,7 +1,6 @@
 package com.cadence.shifts.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,12 +14,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.MarkEmailRead
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -36,6 +37,7 @@ import com.cadence.shifts.ui.components.BadgeTone
 import com.cadence.shifts.ui.components.CadenceCard
 import com.cadence.shifts.ui.components.EmptyStatePanel
 import com.cadence.shifts.ui.components.StatusPill
+import com.cadence.shifts.ui.theme.Amber600
 import com.cadence.shifts.ui.theme.Blue50
 import com.cadence.shifts.ui.theme.Blue700
 import com.cadence.shifts.ui.theme.PureWhite
@@ -49,12 +51,15 @@ import com.cadence.shifts.ui.viewmodel.WorkspaceUiData
 fun NotificationsScreen(
     data: WorkspaceUiData,
     hasOsNotificationPermission: Boolean,
+    isUnrestrictedBattery: Boolean,
     busyAction: String?,
     onRequestOsPermission: () -> Unit,
+    onOpenBatteryDialog: () -> Unit,
     onSendTestAlert: () -> Unit,
     onMarkAllRead: () -> Unit,
     onToggleRead: (id: String, isRead: Boolean) -> Unit
 ) {
+    val bgSyncActive = data.profile.pushNotificationsEnabled && hasOsNotificationPermission
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -64,10 +69,30 @@ fun NotificationsScreen(
             CadenceCard {
                 Text("Push Notification Center", style = MaterialTheme.typography.headlineSmall, color = Slate900)
                 Text(
-                    text = "Real-time delivery when shifts are approved, denied, reassigned by fairness, or reports are verified.",
+                    text = "Real-time background delivery when shifts are approved, denied, reassigned by fairness, or reports are verified.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatusPill(
+                        label = if (bgSyncActive) "Background Sync: Active" else "Background Sync: Paused",
+                        tone = if (bgSyncActive) BadgeTone.INFO else BadgeTone.NEUTRAL
+                    )
+                    StatusPill(
+                        label = if (isUnrestrictedBattery) "Battery: Unrestricted" else "Battery: Restricted",
+                        tone = if (isUnrestrictedBattery) BadgeTone.SUCCESS else BadgeTone.WARNING
+                    )
+                }
+                if (!isUnrestrictedBattery) {
+                    Text(
+                        text = "Android battery optimization may delay notifications until you open the app. Set battery usage to Unrestricted for instant delivery.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Amber600
+                    )
+                }
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -81,6 +106,16 @@ fun NotificationsScreen(
                             Icon(Icons.Rounded.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Enable Device Alerts")
+                        }
+                    }
+                    if (!isUnrestrictedBattery) {
+                        FilledTonalButton(
+                            onClick = onOpenBatteryDialog,
+                            modifier = Modifier.testTag("notifications_battery_fix_button")
+                        ) {
+                            Icon(Icons.Rounded.BatteryAlert, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Set Battery to Unrestricted")
                         }
                     }
                     OutlinedButton(

@@ -32,4 +32,10 @@
     <string name="cancel">Cancel</string>
     <string name="save">Save Changes</string>
     <string name="submit">Submit</string>
+    <string name="battery_dialog_title">Allow Unrestricted Battery Usage</string>
+    <string name="battery_dialog_body">Android battery optimization can pause Cadence in the background so shift approvals and alerts wait until you open the app.</string>
+    <string name="battery_dialog_steps">To receive instant shift notifications:\n1. Tap Open App Settings\n2. Select App battery usage (or Battery)\n3. Choose Unrestricted</string>
+    <string name="battery_dialog_open_settings">Open App Settings</string>
+    <string name="battery_dialog_all_list">Battery List</string>
+    <string name="battery_dialog_later">Later</string>
 </resources>

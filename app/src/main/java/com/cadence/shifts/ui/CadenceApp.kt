@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.EventBusy
@@ -75,7 +76,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -83,6 +87,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.cadence.shifts.R
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.repository.CadenceRepository
+import com.cadence.shifts.notifications.BackgroundSyncScheduler
 import com.cadence.shifts.ui.auth.AuthScreen
 import com.cadence.shifts.ui.components.CadenceCard
 import com.cadence.shifts.ui.screens.ManagerApprovalsScreen
@@ -94,6 +99,7 @@ import com.cadence.shifts.ui.screens.ShiftHistoryScreen
 import com.cadence.shifts.ui.screens.ShiftReportsScreen
 import com.cadence.shifts.ui.screens.TeamHoursScreen
 import com.cadence.shifts.ui.screens.TimeOffRequestsScreen
+import com.cadence.shifts.ui.theme.Amber600
 import com.cadence.shifts.ui.theme.PureWhite
 import com.cadence.shifts.ui.theme.Rose600
 import com.cadence.shifts.ui.theme.Slate50
@@ -102,6 +108,7 @@ import com.cadence.shifts.ui.theme.Slate900
 import com.cadence.shifts.ui.viewmodel.CadenceViewModel
 import com.cadence.shifts.ui.viewmodel.ProfileUiState
 import com.cadence.shifts.ui.viewmodel.WorkspaceUiData
+import com.cadence.shifts.util.BatteryOptimizationHelper
 import com.cadence.shifts.util.GoogleAuthHelper
 import com.cadence.shifts.util.NotificationHelper
 import com.google.firebase.Firebase
@@ -165,6 +172,12 @@ fun CadenceApp(
         (Firebase.auth.currentUser ?: user)?.isEmailVerified == true
     }
 
+    LaunchedEffect(user, isVerified) {
+        if (user == null || !isVerified) {
+            BackgroundSyncScheduler.stopBackgroundSync(context)
+        }
+    }
+
     if (user == null || !isVerified) {
         AuthScreen(
             unverifiedUser = user,
@@ -220,6 +233,11 @@ private fun WorkspaceRoot(
     var hasOsNotifPermission by remember {
         mutableStateOf(NotificationHelper.hasNotificationPermission(context))
     }
+    var isUnrestrictedBattery by remember {
+        mutableStateOf(BatteryOptimizationHelper.isUnrestrictedBattery(context))
+    }
+    var showBatteryOptimizationDialog by remember(currentUserId) { mutableStateOf(false) }
+    var batteryPromptedThisSession by remember(currentUserId) { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -227,10 +245,30 @@ private fun WorkspaceRoot(
         hasOsNotifPermission = granted
         if (granted) {
             viewModel.showBanner("Device shift notifications enabled.")
+            val ready = profileState as? ProfileUiState.Ready
+            if (ready != null) {
+                BackgroundSyncScheduler.ensureBackgroundSync(context, ready.profile.pushNotificationsEnabled)
+            }
         }
     }
 
     var askedNotificationPermissionOnce by remember(currentUserId) { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, profileState) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasOsNotifPermission = NotificationHelper.hasNotificationPermission(context)
+                isUnrestrictedBattery = BatteryOptimizationHelper.isUnrestrictedBattery(context)
+                val ready = profileState as? ProfileUiState.Ready
+                if (ready != null) {
+                    BackgroundSyncScheduler.ensureBackgroundSync(context, ready.profile.pushNotificationsEnabled)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(requestedTabRoute) {
         val target = CadenceTab.entries.firstOrNull { it.route == requestedTabRoute }
@@ -240,8 +278,10 @@ private fun WorkspaceRoot(
         }
     }
 
-    LaunchedEffect(profileState, hasOsNotifPermission) {
+    LaunchedEffect(profileState, hasOsNotifPermission, isUnrestrictedBattery) {
         val ready = profileState as? ProfileUiState.Ready ?: return@LaunchedEffect
+        BackgroundSyncScheduler.ensureBackgroundSync(context, ready.profile.pushNotificationsEnabled)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !hasOsNotifPermission &&
             ready.profile.pushNotificationsEnabled &&
@@ -249,6 +289,15 @@ private fun WorkspaceRoot(
         ) {
             askedNotificationPermissionOnce = true
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return@LaunchedEffect
+        }
+
+        if (ready.profile.pushNotificationsEnabled &&
+            !isUnrestrictedBattery &&
+            !batteryPromptedThisSession
+        ) {
+            batteryPromptedThisSession = true
+            showBatteryOptimizationDialog = true
         }
     }
 
@@ -317,6 +366,7 @@ private fun WorkspaceRoot(
                             Text("Retry")
                         }
                         OutlinedButton(onClick = {
+                            BackgroundSyncScheduler.stopBackgroundSync(context)
                             GoogleAuthHelper.signOut(credentialManager, scope)
                         }) {
                             Text("Sign Out")
@@ -578,12 +628,14 @@ private fun WorkspaceRoot(
                                     CadenceTab.NOTIFICATIONS -> NotificationsScreen(
                                         data = data,
                                         hasOsNotificationPermission = hasOsNotifPermission,
+                                        isUnrestrictedBattery = isUnrestrictedBattery,
                                         busyAction = busyAction,
                                         onRequestOsPermission = {
                                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                             }
                                         },
+                                        onOpenBatteryDialog = { showBatteryOptimizationDialog = true },
                                         onSendTestAlert = viewModel::sendTestAlert,
                                         onMarkAllRead = viewModel::markAllNotificationsRead,
                                         onToggleRead = viewModel::markNotificationRead
@@ -609,16 +661,94 @@ private fun WorkspaceRoot(
                     onDismiss = { showProfileDialog = false },
                     onSave = { name, dept, target, push ->
                         viewModel.updatePreferences(name, dept, target, push)
+                        BackgroundSyncScheduler.ensureBackgroundSync(context, push)
                         showProfileDialog = false
                     },
                     onSignOut = {
                         showProfileDialog = false
+                        BackgroundSyncScheduler.stopBackgroundSync(context)
                         GoogleAuthHelper.signOut(credentialManager, scope)
                     }
                 )
             }
+
+            if (showBatteryOptimizationDialog) {
+                BatteryOptimizationDialog(
+                    onOpenAppSettings = {
+                        showBatteryOptimizationDialog = false
+                        BatteryOptimizationHelper.openAppBatterySettings(context)
+                    },
+                    onOpenBatteryList = {
+                        showBatteryOptimizationDialog = false
+                        BatteryOptimizationHelper.openBatteryOptimizationList(context)
+                    },
+                    onDismiss = { showBatteryOptimizationDialog = false }
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun BatteryOptimizationDialog(
+    onOpenAppSettings: () -> Unit,
+    onOpenBatteryList: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.BatteryAlert,
+                contentDescription = null,
+                tint = Amber600
+            )
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.battery_dialog_title),
+                color = Slate900
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.battery_dialog_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Slate600
+                )
+                Text(
+                    text = stringResource(R.string.battery_dialog_steps),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Slate900
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onOpenAppSettings,
+                modifier = Modifier.testTag("battery_dialog_open_settings")
+            ) {
+                Text(stringResource(R.string.battery_dialog_open_settings))
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = onOpenBatteryList,
+                    modifier = Modifier.testTag("battery_dialog_all_list")
+                ) {
+                    Text(stringResource(R.string.battery_dialog_all_list))
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag("battery_dialog_later")
+                ) {
+                    Text(stringResource(R.string.battery_dialog_later))
+                }
+            }
+        }
+    )
 }
 
 @Composable

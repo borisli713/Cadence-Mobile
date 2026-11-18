@@ -1,6 +1,7 @@
 package com.cadence.shifts.util
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -18,6 +19,8 @@ import com.cadence.shifts.data.model.PushNotificationRecord
 object NotificationHelper {
     private const val CHANNEL_ID = "cadence_shift_alerts"
     private const val CHANNEL_NAME = "Shift & Approval Alerts"
+    private const val SYNC_CHANNEL_ID = "cadence_bg_sync"
+    private const val SYNC_CHANNEL_NAME = "Background Shift Sync"
     private const val PREFS_NAME = "cadence_alert_prefs"
     private const val KEY_INITIALIZED_PREFIX = "initialized_"
     private const val KEY_SEEN_IDS_PREFIX = "seen_ids_"
@@ -26,19 +29,53 @@ object NotificationHelper {
 
     const val EXTRA_OPEN_TAB = "extra_open_tab"
     const val TAB_NOTIFICATIONS = "notifications"
+    const val SYNC_NOTIFICATION_ID = 4102
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val alertsChannel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Notifications for approved schedule changes, verified reports, and shift fairness assignments."
             }
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(alertsChannel)
+
+            val syncChannel = NotificationChannel(
+                SYNC_CHANNEL_ID,
+                SYNC_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "Keeps live shift and approval alerts synced in the background."
+                setShowBadge(false)
+            }
+            manager.createNotificationChannel(syncChannel)
         }
+    }
+
+    fun buildBackgroundSyncNotification(context: Context): Notification {
+        ensureChannel(context)
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_TAB, TAB_NOTIFICATIONS)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            SYNC_NOTIFICATION_ID,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(context, SYNC_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Cadence live alerts active")
+            .setContentText("Listening for shift assignments and approval updates")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setOngoing(true)
+            .setSilent(true)
+            .setContentIntent(pendingIntent)
+            .build()
     }
 
     fun hasNotificationPermission(context: Context): Boolean {
@@ -89,8 +126,9 @@ object NotificationHelper {
     /**
      * Returns newly arrived unread alerts for [uid] that have not yet been surfaced on this device,
      * persisting seen IDs across app restarts so approvals made on the Web App while this app was
-     * closed still trigger an alert on next launch without re-notifying old history.
+     * closed still trigger an alert without re-notifying old history.
      */
+    @Synchronized
     fun filterUnnotifiedAlerts(
         context: Context,
         uid: String,
