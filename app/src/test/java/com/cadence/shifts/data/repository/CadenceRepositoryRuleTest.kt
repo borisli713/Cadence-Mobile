@@ -378,6 +378,114 @@ class CadenceRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertEquals("Coverage needed", targetHistory.reviewNote)
     }
 
+    @Test
+    fun assignedSchedule_syncedForStaffAndUpdatedOnReassignment() = runBlocking {
+        val adminUid = signInTestUser(ADMIN_EMAIL)
+        val adminRepo = CadenceRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        val staffEmail = "assigned_${UUID.randomUUID().toString().take(8)}@test.com"
+        val staffUid = signInTestUser(staffEmail)
+        val staffRepo = CadenceRepository(firestore, auth)
+        val staffProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            staffRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        val otherEmail = "other_${UUID.randomUUID().toString().take(8)}@test.com"
+        val otherUid = signInTestUser(otherEmail)
+        val otherRepo = CadenceRepository(firestore, auth)
+        val otherProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            otherRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        // Manager creates one assigned shift for staff and one open shift (simulating Web App scheduling)
+        signInTestUser(ADMIN_EMAIL)
+        val assignedShiftId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.createShift(
+                title = "Morning Ward",
+                department = "Operations",
+                date = "2026-11-26",
+                startTime = "08:00",
+                endTime = "16:00",
+                assignedUid = staffUid,
+                assignedName = staffProfile.displayName,
+                candidateUids = listOf(staffUid),
+                status = ShiftStatus.SCHEDULED,
+                fairnessNote = "Assigned on Web",
+                createdBy = adminUid
+            )
+        }
+        val openShiftId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.createShift(
+                title = "Afternoon Relief",
+                department = "Operations",
+                date = "2026-11-27",
+                startTime = "14:00",
+                endTime = "22:00",
+                assignedUid = "",
+                assignedName = "",
+                candidateUids = emptyList(),
+                status = ShiftStatus.OPEN,
+                fairnessNote = "Open",
+                createdBy = adminUid
+            )
+        }
+
+        // Staff observes their own assigned shift in real time
+        signInTestUser(staffEmail)
+        val initialMyShifts = withTimeout(FLOW_TIMEOUT_MS) {
+            staffRepo.observeShifts(staffUid)
+                .first { list -> list.any { it.id == assignedShiftId } }
+                .filter { it.assignedUid == staffUid && it.status != ShiftStatus.OPEN }
+        }
+        assertEquals(listOf(assignedShiftId), initialMyShifts.map { it.id })
+
+        // Manager assigns the second shift to staff and reassigns the first shift to another staff member
+        signInTestUser(ADMIN_EMAIL)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.updateShift(
+                shiftId = openShiftId,
+                title = "Afternoon Relief",
+                department = "Operations",
+                date = "2026-11-27",
+                startTime = "14:00",
+                endTime = "22:00",
+                assignedUid = staffUid,
+                assignedName = staffProfile.displayName,
+                status = ShiftStatus.SCHEDULED,
+                fairnessNote = "Assigned to worker"
+            )
+        }
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.updateShift(
+                shiftId = assignedShiftId,
+                title = "Morning Ward",
+                department = "Operations",
+                date = "2026-11-26",
+                startTime = "08:00",
+                endTime = "16:00",
+                assignedUid = otherUid,
+                assignedName = otherProfile.displayName,
+                status = ShiftStatus.SCHEDULED,
+                fairnessNote = "Reassigned"
+            )
+        }
+
+        // Staff's own schedule reflects the reassignment immediately
+        signInTestUser(staffEmail)
+        val updatedMyShifts = withTimeout(FLOW_TIMEOUT_MS) {
+            staffRepo.observeShifts(staffUid)
+                .first { list ->
+                    val mine = list.filter { it.assignedUid == staffUid && it.status != ShiftStatus.OPEN }
+                    mine.any { it.id == openShiftId } && mine.none { it.id == assignedShiftId }
+                }
+                .filter { it.assignedUid == staffUid && it.status != ShiftStatus.OPEN }
+        }
+        assertEquals(listOf(openShiftId), updatedMyShifts.map { it.id })
+    }
+
     private companion object {
         const val ADMIN_EMAIL = "yatheili713@gmail.com"
         const val DEFAULT_TIMEOUT_MS = 8000L

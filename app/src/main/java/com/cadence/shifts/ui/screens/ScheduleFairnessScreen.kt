@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -99,6 +100,7 @@ fun ScheduleFairnessScreen(
     data: WorkspaceUiData,
     weekSlots: List<WeekSlotConfig>,
     busyAction: String?,
+    onNavigateToMySchedule: () -> Unit,
     onArrangeOverlaps: () -> Unit,
     onAssignOpenShifts: () -> Unit,
     onGenerateWeekSchedule: (String) -> Unit,
@@ -115,6 +117,7 @@ fun ScheduleFairnessScreen(
 
     var subTab by remember { mutableStateOf(ScheduleSubTab.CALENDAR) }
     var calendarIsMonth by remember { mutableStateOf(false) }
+    var myShiftsOnly by remember { mutableStateOf(false) }
     var weekAnchorDate by remember { mutableStateOf(FairnessEngine.getMondayOfWeek(LocalDate.now())) }
     var tableFilter by remember { mutableStateOf(ShiftTableFilter.ALL) }
     var searchQuery by remember { mutableStateOf("") }
@@ -182,6 +185,15 @@ fun ScheduleFairnessScreen(
                         Icon(Icons.Rounded.EventAvailable, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Submit Availability")
+                    }
+
+                    OutlinedButton(
+                        onClick = onNavigateToMySchedule,
+                        modifier = Modifier.testTag("schedule_my_schedule_button")
+                    ) {
+                        Icon(Icons.Rounded.Today, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("My Schedule (${data.myAssignedShifts.size})")
                     }
 
                     OutlinedButton(
@@ -292,6 +304,18 @@ fun ScheduleFairnessScreen(
                             }
                         }
 
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            FilterChip(
+                                selected = myShiftsOnly,
+                                onClick = { myShiftsOnly = !myShiftsOnly },
+                                label = { Text("My Shifts Only (${data.myAssignedShifts.size})") },
+                                modifier = Modifier.testTag("calendar_my_shifts_chip")
+                            )
+                        }
+
                         val daysToDisplay = if (calendarIsMonth) {
                             val ym = YearMonth.from(weekAnchorDate)
                             (1..ym.lengthOfMonth()).map { ym.atDay(it) }
@@ -302,7 +326,12 @@ fun ScheduleFairnessScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             daysToDisplay.forEach { day ->
                                 val dayIso = day.format(isoFmt)
-                                val dayShifts = data.shifts.filter { it.date == dayIso }
+                                val dayShifts = data.shifts.filter { shift ->
+                                    shift.date == dayIso && (
+                                        !myShiftsOnly ||
+                                            (shift.assignedUid == data.profile.uid && shift.status != ShiftStatus.OPEN)
+                                        )
+                                }
                                 val isToday = day == LocalDate.now()
                                 if (!calendarIsMonth || dayShifts.isNotEmpty() || isToday) {
                                     Surface(

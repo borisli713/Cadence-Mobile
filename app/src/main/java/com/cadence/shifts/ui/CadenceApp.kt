@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -80,10 +81,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.cadence.shifts.R
+import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.repository.CadenceRepository
 import com.cadence.shifts.ui.auth.AuthScreen
 import com.cadence.shifts.ui.components.CadenceCard
 import com.cadence.shifts.ui.screens.ManagerApprovalsScreen
+import com.cadence.shifts.ui.screens.MyScheduleScreen
 import com.cadence.shifts.ui.screens.NotificationsScreen
 import com.cadence.shifts.ui.screens.OverviewScreen
 import com.cadence.shifts.ui.screens.ScheduleFairnessScreen
@@ -112,6 +115,7 @@ import kotlinx.coroutines.flow.callbackFlow
 
 enum class CadenceTab(val route: String, val label: String, val icon: ImageVector) {
     OVERVIEW("overview", "Overview", Icons.Rounded.Dashboard),
+    MY_SCHEDULE("my_schedule", "My Schedule", Icons.Rounded.Today),
     SCHEDULE("schedule", "Schedule", Icons.Rounded.CalendarMonth),
     REPORTS("reports", "Reports", Icons.Rounded.Assignment),
     APPROVALS("approvals", "Approvals", Icons.Rounded.FactCheck),
@@ -211,6 +215,7 @@ private fun WorkspaceRoot(
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by remember { mutableStateOf(CadenceTab.OVERVIEW) }
     var openReportModalFromOverview by remember { mutableStateOf(false) }
+    var reportPreselectedShift by remember { mutableStateOf<Shift?>(null) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var hasOsNotifPermission by remember {
         mutableStateOf(NotificationHelper.hasNotificationPermission(context))
@@ -492,22 +497,38 @@ private fun WorkspaceRoot(
                                 when (activeTab) {
                                     CadenceTab.OVERVIEW -> OverviewScreen(
                                         data = data,
+                                        onNavigateToMySchedule = { activeTab = CadenceTab.MY_SCHEDULE },
                                         onNavigateToSchedule = { activeTab = CadenceTab.SCHEDULE },
                                         onNavigateToApprovals = { activeTab = CadenceTab.APPROVALS },
                                         onNavigateToHistory = { activeTab = CadenceTab.HISTORY },
                                         onNavigateToTimeOff = { activeTab = CadenceTab.TIME_OFF },
                                         onNavigateToNotifications = { activeTab = CadenceTab.NOTIFICATIONS },
                                         onOpenLogReport = {
+                                            reportPreselectedShift = null
                                             openReportModalFromOverview = true
                                             activeTab = CadenceTab.REPORTS
                                         },
                                         onSubmitScheduleChange = viewModel::submitScheduleChange
                                     )
 
+                                    CadenceTab.MY_SCHEDULE -> MyScheduleScreen(
+                                        data = data,
+                                        onNavigateToTeamSchedule = { activeTab = CadenceTab.SCHEDULE },
+                                        onOpenLogReportForShift = { shift ->
+                                            reportPreselectedShift = shift
+                                            openReportModalFromOverview = true
+                                            activeTab = CadenceTab.REPORTS
+                                        },
+                                        onSubmitScheduleChange = viewModel::submitScheduleChange,
+                                        onUpdateShift = viewModel::updateShift,
+                                        onDeleteShift = viewModel::deleteShift
+                                    )
+
                                     CadenceTab.SCHEDULE -> ScheduleFairnessScreen(
                                         data = data,
                                         weekSlots = weekSlots,
                                         busyAction = busyAction,
+                                        onNavigateToMySchedule = { activeTab = CadenceTab.MY_SCHEDULE },
                                         onArrangeOverlaps = viewModel::arrangeAllOverlapsByFairness,
                                         onAssignOpenShifts = { viewModel.assignOpenShiftsByFairness(false) },
                                         onGenerateWeekSchedule = viewModel::generateWeeklySchedule,
@@ -524,7 +545,11 @@ private fun WorkspaceRoot(
                                         data = data,
                                         busyAction = busyAction,
                                         openModalInitially = openReportModalFromOverview,
-                                        onConsumedInitialModal = { openReportModalFromOverview = false },
+                                        initialShiftForReport = reportPreselectedShift,
+                                        onConsumedInitialModal = {
+                                            openReportModalFromOverview = false
+                                            reportPreselectedShift = null
+                                        },
                                         onSubmitReport = viewModel::submitShiftReport,
                                         onVerifyOrFlag = viewModel::verifyOrFlagReport
                                     )

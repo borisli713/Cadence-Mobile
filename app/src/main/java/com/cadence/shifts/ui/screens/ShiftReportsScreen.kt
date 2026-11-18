@@ -77,6 +77,7 @@ fun ShiftReportsScreen(
     data: WorkspaceUiData,
     busyAction: String?,
     openModalInitially: Boolean,
+    initialShiftForReport: Shift? = null,
     onConsumedInitialModal: () -> Unit,
     onSubmitReport: (
         shiftId: String,
@@ -92,9 +93,11 @@ fun ShiftReportsScreen(
 ) {
     var selectedFilter by remember { mutableStateOf(ReportFilter.ALL) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var preselectedShift by remember { mutableStateOf<Shift?>(null) }
 
-    LaunchedEffect(openModalInitially) {
+    LaunchedEffect(openModalInitially, initialShiftForReport) {
         if (openModalInitially) {
+            preselectedShift = initialShiftForReport
             showCreateDialog = true
             onConsumedInitialModal()
         }
@@ -239,10 +242,15 @@ fun ShiftReportsScreen(
     if (showCreateDialog) {
         LogShiftReportDialog(
             data = data,
-            onDismiss = { showCreateDialog = false },
+            initialShift = preselectedShift,
+            onDismiss = {
+                showCreateDialog = false
+                preselectedShift = null
+            },
             onSubmit = { shiftId, title, dept, date, start, end, breakMins, notes ->
                 onSubmitReport(shiftId, title, dept, date, start, end, breakMins, notes)
                 showCreateDialog = false
+                preselectedShift = null
             }
         )
     }
@@ -252,6 +260,7 @@ fun ShiftReportsScreen(
 @Composable
 private fun LogShiftReportDialog(
     data: WorkspaceUiData,
+    initialShift: Shift? = null,
     onDismiss: () -> Unit,
     onSubmit: (
         shiftId: String,
@@ -270,14 +279,14 @@ private fun LogShiftReportDialog(
         }
     }
 
-    var selectedShift by remember { mutableStateOf<Shift?>(null) }
+    var selectedShift by remember(initialShift?.id) { mutableStateOf(initialShift) }
     var dropdownExpanded by remember { mutableStateOf(false) }
 
-    var shiftTitle by remember { mutableStateOf("Morning Operations") }
-    var department by remember { mutableStateOf(data.profile.department) }
-    var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var startTime by remember { mutableStateOf("08:00") }
-    var endTime by remember { mutableStateOf("16:00") }
+    var shiftTitle by remember(initialShift?.id) { mutableStateOf(initialShift?.title ?: "Morning Operations") }
+    var department by remember(initialShift?.id) { mutableStateOf(initialShift?.department ?: data.profile.department) }
+    var date by remember(initialShift?.id) { mutableStateOf(initialShift?.date ?: LocalDate.now().toString()) }
+    var startTime by remember(initialShift?.id) { mutableStateOf(initialShift?.startTime ?: "08:00") }
+    var endTime by remember(initialShift?.id) { mutableStateOf(initialShift?.endTime ?: "16:00") }
     var breakText by remember { mutableStateOf("30") }
     var handoffNotes by remember { mutableStateOf("") }
 

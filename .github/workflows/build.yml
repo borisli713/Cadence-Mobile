@@ -203,6 +203,8 @@ jobs:
             <style>
               body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 0 20px; text-align: center; }
               .btn { display: inline-block; background: #1976d2; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 16px 0; }
+              .github-link { display: inline-flex; align-items: center; gap: 8px; color: #24292f; text-decoration: none; font-weight: 600; padding: 8px 14px; border: 1px solid #d0d7de; border-radius: 8px; margin: 4px 0 8px; }
+              .github-link:hover { background: #f6f8fa; }
               .qr { width: 220px; height: 220px; margin: 16px auto; display: block; border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
               code { background: #f4f4f4; padding: 4px 8px; border-radius: 4px; word-break: break-all; display: inline-block; margin-top: 8px; }
               ul { list-style: none; padding: 0; }
@@ -211,6 +213,14 @@ jobs:
           </head>
           <body>
             <h1>Cadence Mobile</h1>
+            <p>
+              <a class="github-link" href="https://github.com/borisli713/Cadence-Mobile" aria-label="View Cadence Mobile on GitHub">
+                <svg viewBox="0 0 16 16" width="22" height="22" fill="currentColor" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+                <span>View on GitHub</span>
+              </a>
+            </p>
             <p>Latest Version: <strong>${TAG}</strong></p>
             <a class="btn" href="repo/Cadence-Mobile-${TAG}.apk" download>Download Latest APK (${TAG})</a>
             <h3>Scan to Add F-Droid Repo</h3>

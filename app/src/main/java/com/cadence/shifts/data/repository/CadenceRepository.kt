@@ -101,15 +101,20 @@ class CadenceRepository(
             }
             .withFirestoreLogging(OperationType.LIST, "staffDirectory", uid)
 
-    fun observeShifts(uid: String): Flow<List<Shift>> =
-        db.collection("shifts")
+    fun observeShifts(uid: String): Flow<List<Shift>> {
+        val teamStream = db.collection("shifts")
             .whereEqualTo("visibility", "team")
             .snapshots()
-            .map { snap ->
-                snap.documents.mapNotNull { it.toShift() }
-                    .sortedWith(compareBy<Shift> { it.date }.thenBy { it.startTime })
-            }
-            .withFirestoreLogging(OperationType.LIST, "shifts", uid)
+        val assignedStream = db.collection("shifts")
+            .whereEqualTo("assignedUid", uid)
+            .snapshots()
+        return combine(teamStream, assignedStream) { teamSnap, assignedSnap ->
+            val byId = LinkedHashMap<String, Shift>()
+            teamSnap.documents.mapNotNull { it.toShift() }.forEach { byId[it.id] = it }
+            assignedSnap.documents.mapNotNull { it.toShift() }.forEach { byId[it.id] = it }
+            byId.values.sortedWith(compareBy<Shift> { it.date }.thenBy { it.startTime })
+        }.withFirestoreLogging(OperationType.LIST, "shifts", uid)
+    }
 
     fun observeScheduleChanges(uid: String, isManager: Boolean): Flow<List<ScheduleChangeRequest>> {
         if (isManager) {

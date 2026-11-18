@@ -55,6 +55,8 @@ data class WorkspaceUiData(
     val streamError: String? = null
 ) {
     val isManager: Boolean get() = profile.role == UserRole.MANAGER
+    val myAssignedShifts: List<Shift>
+        get() = shifts.filter { it.assignedUid == profile.uid && it.status != ShiftStatus.OPEN }
     val pendingApprovalsCount: Int get() = scheduleChanges.count { it.status == ApprovalStatus.PENDING }
     val pendingTimeOffCount: Int get() = timeOffRequests.count { it.status == ApprovalStatus.PENDING }
     val unreadNotificationsCount: Int get() = notifications.count { !it.isRead }

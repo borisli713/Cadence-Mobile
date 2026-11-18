@@ -17,6 +17,7 @@
     <string name="sign_out">Sign out</string>
     <string name="loading_workspace">Loading Cadence workspace…</string>
     <string name="nav_overview">Overview</string>
+    <string name="nav_my_schedule">My Schedule</string>
     <string name="nav_schedule">Schedule</string>
     <string name="nav_reports">Reports</string>
     <string name="nav_approvals">Approvals</string>
