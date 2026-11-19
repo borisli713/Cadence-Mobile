@@ -355,6 +355,30 @@ service cloud.firestore {
       allow delete: if isVerifiedUser() && isValidId(userId) && isManager();
     }
 
+    function isAuthorizedScheduleChangeForShift(changeData, shiftData) {
+      return isManager()
+        || (
+          changeData.requesterUid == request.auth.uid
+          && changeData.currentDate == shiftData.date
+          && changeData.currentStartTime == shiftData.startTime
+          && changeData.currentEndTime == shiftData.endTime
+          && (
+            (changeData.type == 'claim'
+              && shiftData.status == 'open'
+              && shiftData.assignedUid == ''
+              && (changeData.proposedAssigneeUid == '' || changeData.proposedAssigneeUid == request.auth.uid))
+            ||
+            (changeData.type in ['time_change', 'swap', 'drop']
+              && shiftData.assignedUid == request.auth.uid
+              && (changeData.type != 'drop' || changeData.proposedAssigneeUid == '')
+              && (changeData.type != 'time_change'
+                || changeData.proposedAssigneeUid == ''
+                || changeData.proposedAssigneeUid == request.auth.uid)
+              && (changeData.type != 'swap' || isValidId(changeData.proposedAssigneeUid)))
+          )
+        );
+    }
+
     // 4. Shifts & Overlap Assignments
     match /shifts/{shiftId} {
       allow get: if isVerifiedUser() && isValidId(shiftId)
@@ -362,12 +386,12 @@ service cloud.firestore {
       allow list: if isVerifiedUser()
         && (isManager() || resource.data.assignedUid == request.auth.uid || resource.data.visibility == 'team');
       allow create: if isVerifiedUser() && isValidId(shiftId)
+        && isManager()
         && isValidShift(incoming())
         && incoming().id == shiftId
         && incoming().createdBy == request.auth.uid
         && incoming().createdAt is timestamp && incoming().createdAt <= request.time
-        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
-        && (isManager() || incoming().assignedUid == request.auth.uid);
+        && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
       allow update: if isVerifiedUser() && isValidId(shiftId)
         && isValidShift(incoming())
         && incoming().id == existing().id
@@ -381,9 +405,12 @@ service cloud.firestore {
             'status', 'fairnessNote', 'updatedAt'
           ]))
           ||
-          (existing().assignedUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly([
-            'status', 'updatedAt'
-          ]))
+          (existing().assignedUid == request.auth.uid
+            && existing().status in ['scheduled', 'conflict', 'pending_change']
+            && incoming().status == 'pending_change'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'updatedAt'
+            ]))
         );
       allow delete: if isVerifiedUser() && isValidId(shiftId) && isManager();
     }
@@ -402,12 +429,20 @@ service cloud.firestore {
         && incoming().reviewedByUid == ''
         && incoming().createdAt is timestamp && incoming().createdAt <= request.time
         && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
-        && exists(/databases/$(database)/documents/shifts/$(incoming().shiftId));
+        && exists(/databases/$(database)/documents/shifts/$(incoming().shiftId))
+        && isAuthorizedScheduleChangeForShift(
+          incoming(),
+          get(/databases/$(database)/documents/shifts/$(incoming().shiftId)).data
+        );
       allow update: if isVerifiedUser() && isValidId(changeId)
         && isValidScheduleChange(incoming())
         && incoming().id == existing().id
         && incoming().requesterUid == existing().requesterUid
         && incoming().shiftId == existing().shiftId
+        && incoming().type == existing().type
+        && incoming().currentDate == existing().currentDate
+        && incoming().currentStartTime == existing().currentStartTime
+        && incoming().currentEndTime == existing().currentEndTime
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt is timestamp && incoming().updatedAt <= request.time
         && (
@@ -423,8 +458,7 @@ service cloud.firestore {
             && existing().status == 'pending'
             && incoming().status == 'pending'
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'proposedDate', 'proposedStartTime', 'proposedEndTime',
-              'proposedAssigneeUid', 'proposedAssigneeName', 'reason', 'updatedAt'
+              'proposedDate', 'proposedStartTime', 'proposedEndTime', 'reason', 'updatedAt'
             ]))
         );
       allow delete: if isVerifiedUser() && isValidId(changeId)

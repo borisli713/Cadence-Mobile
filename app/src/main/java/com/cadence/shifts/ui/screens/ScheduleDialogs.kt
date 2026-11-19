@@ -416,11 +416,28 @@ fun RequestChangeDialog(
         reason: String
     ) -> Unit
 ) {
-    val shiftOptions = remember(availableShifts, shift) {
-        if (availableShifts.any { it.id == shift.id }) availableShifts else listOf(shift) + availableShifts
+    val shiftOptions = remember(availableShifts, shift, currentUserUid) {
+        val base = if (availableShifts.any { it.id == shift.id }) availableShifts else listOf(shift) + availableShifts
+        val eligible = base.filter { option ->
+            option.status == ShiftStatus.OPEN ||
+                (option.assignedUid == currentUserUid && option.status != ShiftStatus.COMPLETED)
+        }
+        if (eligible.isNotEmpty()) eligible else listOf(shift)
     }
-    var selectedShift by remember(shift.id) { mutableStateOf(shift) }
+    var selectedShift by remember(shift.id) { mutableStateOf(shiftOptions.firstOrNull { it.id == shift.id } ?: shiftOptions.first()) }
     var shiftDropdownExpanded by remember { mutableStateOf(false) }
+
+    val allowedTypesForSelected = remember(selectedShift, currentUserUid) {
+        when {
+            selectedShift.status == ShiftStatus.OPEN -> listOf(ScheduleChangeType.CLAIM)
+            selectedShift.assignedUid == currentUserUid -> listOf(
+                ScheduleChangeType.TIME_CHANGE,
+                ScheduleChangeType.SWAP,
+                ScheduleChangeType.DROP
+            )
+            else -> emptyList()
+        }
+    }
 
     val defaultType = if (selectedShift.status == ShiftStatus.OPEN) ScheduleChangeType.CLAIM else ScheduleChangeType.TIME_CHANGE
     var type by remember(shift.id) { mutableStateOf(defaultType) }
@@ -500,8 +517,10 @@ fun RequestChangeDialog(
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ScheduleChangeType.entries.forEach { t ->
+                        val chipEnabled = t in allowedTypesForSelected
                         FilterChip(
                             selected = type == t,
+                            enabled = chipEnabled,
                             onClick = {
                                 type = t
                                 when (t) {
@@ -598,7 +617,10 @@ fun RequestChangeDialog(
                     onSubmit(selectedShift, type, proposedDate, proposedStart, proposedEnd, swapUid, swapName, reason)
                     onDismiss()
                 },
-                enabled = reason.isNotBlank() && isTimeValid && (type != ScheduleChangeType.SWAP || swapUid.isNotBlank())
+                enabled = type in allowedTypesForSelected &&
+                    reason.isNotBlank() &&
+                    isTimeValid &&
+                    (type != ScheduleChangeType.SWAP || swapUid.isNotBlank())
             ) {
                 Text("Submit Request")
             }

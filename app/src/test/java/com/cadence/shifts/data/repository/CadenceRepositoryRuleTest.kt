@@ -506,6 +506,169 @@ class CadenceRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue(otherNotifs.isNotEmpty())
     }
 
+    @Test
+    fun securityRules_blockStaffShiftForgerySelfCompletionAndCrossUserScheduleChangeTampering() = runBlocking {
+        val adminUid = signInTestUser(ADMIN_EMAIL)
+        val adminRepo = CadenceRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        val staffAEmail = "sec_a_${UUID.randomUUID().toString().take(8)}@test.com"
+        val staffAUid = signInTestUser(staffAEmail)
+        val staffARepo = CadenceRepository(firestore, auth)
+        val staffAProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            staffARepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        val staffBEmail = "sec_b_${UUID.randomUUID().toString().take(8)}@test.com"
+        val staffBUid = signInTestUser(staffBEmail)
+        val staffBRepo = CadenceRepository(firestore, auth)
+        val staffBProfile = withTimeout(DEFAULT_TIMEOUT_MS) {
+            staffBRepo.ensureVerifiedUserProvisioned(checkNotNull(auth.currentUser))
+        }
+
+        // Manager creates Staff A shift and Staff B shift
+        signInTestUser(ADMIN_EMAIL)
+        val shiftAId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.createShift(
+                title = "Staff A Shift",
+                department = "Operations",
+                date = "2026-11-28",
+                startTime = "08:00",
+                endTime = "16:00",
+                assignedUid = staffAUid,
+                assignedName = staffAProfile.displayName,
+                candidateUids = listOf(staffAUid),
+                status = ShiftStatus.SCHEDULED,
+                fairnessNote = "Assigned",
+                createdBy = adminUid
+            )
+        }
+        val shiftBId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminRepo.createShift(
+                title = "Staff B Shift",
+                department = "Operations",
+                date = "2026-11-29",
+                startTime = "08:00",
+                endTime = "16:00",
+                assignedUid = staffBUid,
+                assignedName = staffBProfile.displayName,
+                candidateUids = listOf(staffBUid),
+                status = ShiftStatus.SCHEDULED,
+                fairnessNote = "Assigned",
+                createdBy = adminUid
+            )
+        }
+
+        // CWE-285 #1: Staff A cannot directly create a forged shift assigned to themselves
+        signInTestUser(staffAEmail)
+        var createShiftErr: Exception? = null
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                staffARepo.createShift(
+                    title = "Forged 24h Shift",
+                    department = "Operations",
+                    date = "2026-11-30",
+                    startTime = "00:00",
+                    endTime = "23:59",
+                    assignedUid = staffAUid,
+                    assignedName = staffAProfile.displayName,
+                    candidateUids = listOf(staffAUid),
+                    status = ShiftStatus.COMPLETED,
+                    fairnessNote = "Forged",
+                    createdBy = staffAUid
+                )
+            }
+        } catch (e: Exception) {
+            createShiftErr = e
+        }
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, createShiftErr?.unwrapFirestoreException()?.code)
+
+        // CWE-285 #2: Staff A cannot mark their own shift as 'completed' without verification
+        var selfCompleteErr: Exception? = null
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                firestore.collection("shifts").document(shiftAId)
+                    .update(
+                        mapOf(
+                            "status" to ShiftStatus.COMPLETED.value,
+                            "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        )
+                    )
+                    .let { com.google.android.gms.tasks.Tasks.await(it) }
+            }
+        } catch (e: Exception) {
+            selfCompleteErr = e
+        }
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, selfCompleteErr?.unwrapFirestoreException()?.code)
+
+        // CWE-639 #1: Staff A cannot file a drop or swap against Staff B's shift
+        val shiftB = withTimeout(FLOW_TIMEOUT_MS) {
+            staffARepo.observeShifts(staffAUid).first { list -> list.any { it.id == shiftBId } }
+                .first { it.id == shiftBId }
+        }
+        var crossUserDropErr: Exception? = null
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                staffARepo.submitScheduleChangeRequest(
+                    shift = shiftB,
+                    requesterUid = staffAUid,
+                    requesterName = staffAProfile.displayName,
+                    type = ScheduleChangeType.DROP,
+                    proposedDate = shiftB.date,
+                    proposedStartTime = shiftB.startTime,
+                    proposedEndTime = shiftB.endTime,
+                    proposedAssigneeUid = "",
+                    proposedAssigneeName = "",
+                    reason = "Unauthorized drop"
+                )
+            }
+        } catch (e: Exception) {
+            crossUserDropErr = e
+        }
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, crossUserDropErr?.unwrapFirestoreException()?.code)
+
+        // CWE-639 #2: Staff A files legitimate time_change on their own shift, then cannot hijack proposedAssigneeUid
+        val shiftA = withTimeout(FLOW_TIMEOUT_MS) {
+            staffARepo.observeShifts(staffAUid).first { list -> list.any { it.id == shiftAId } }
+                .first { it.id == shiftAId }
+        }
+        val validChangeId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            staffARepo.submitScheduleChangeRequest(
+                shift = shiftA,
+                requesterUid = staffAUid,
+                requesterName = staffAProfile.displayName,
+                type = ScheduleChangeType.TIME_CHANGE,
+                proposedDate = shiftA.date,
+                proposedStartTime = "09:00",
+                proposedEndTime = "17:00",
+                proposedAssigneeUid = "",
+                proposedAssigneeName = "",
+                reason = "Legitimate shift adjustment"
+            )
+        }
+        assertTrue(validChangeId.isNotBlank())
+
+        var hijackUpdateErr: Exception? = null
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                firestore.collection("scheduleChanges").document(validChangeId)
+                    .update(
+                        mapOf(
+                            "proposedAssigneeUid" to staffBUid,
+                            "proposedAssigneeName" to staffBProfile.displayName,
+                            "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        )
+                    )
+                    .let { com.google.android.gms.tasks.Tasks.await(it) }
+            }
+        } catch (e: Exception) {
+            hijackUpdateErr = e
+        }
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, hijackUpdateErr?.unwrapFirestoreException()?.code)
+    }
+
     private companion object {
         const val ADMIN_EMAIL = "yatheili713@gmail.com"
         const val DEFAULT_TIMEOUT_MS = 8000L
