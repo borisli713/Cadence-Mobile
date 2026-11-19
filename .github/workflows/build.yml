@@ -1,19 +1,29 @@
-name: Release APK & Update F-Droid Repo
+name: Build, Release & Deploy F-Droid Pages
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  release:
+  build-and-release:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      # 1. Checkout full git history so tags and commit logs are available
+      # 1. Checkout full git history so tags and commits are available
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -28,7 +38,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # 2. Restore google-services.json (handles either raw JSON or base64)
+      # 2. Restore google-services.json (works with either raw JSON or base64)
       - name: Restore google-services.json
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -58,18 +68,39 @@ jobs:
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      # 5. Copy & rename signed APK to Cadence-Mobile-vX.Y.Z.apk
-      - name: Prepare APK artifact
+      # 5. Extract package name, versionCode, and versionName directly from the signed APK
+      - name: Read APK metadata & prepare artifact
+        id: app_info
         run: |
-          mkdir -p dist
-          cp "${{ steps.sign_app.outputs.signedReleaseFile }}" "dist/Cadence-Mobile-${{ github.ref_name }}.apk"
+          SIGNED_APK="${{ steps.sign_app.outputs.signedReleaseFile }}"
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)
+          BADGING=$("$AAPT2" dump badging "$SIGNED_APK")
 
-      # 6. Generate commit-by-commit changelog for GitHub Release & F-Droid
+          PACKAGE_NAME=$(echo "$BADGING" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -n 1)
+          VERSION_CODE=$(echo "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)
+          VERSION_NAME=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)
+
+          case "$VERSION_NAME" in
+            v*) TAG_NAME="$VERSION_NAME" ;;
+            *)  TAG_NAME="v$VERSION_NAME" ;;
+          esac
+
+          mkdir -p dist
+          APK_NAME="Cadence-Mobile-${TAG_NAME}.apk"
+          cp "$SIGNED_APK" "dist/$APK_NAME"
+
+          echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
+
+      # 6. Generate commit-by-commit changelog since the previous release tag
       - name: Generate changelog from commits
         env:
-          CURRENT_TAG: ${{ github.ref_name }}
+          CURRENT_TAG: ${{ steps.app_info.outputs.tag_name }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
+          git fetch --tags --force
           python3 - <<'EOF'
           import os
           import subprocess
@@ -77,19 +108,16 @@ jobs:
           current_tag = os.environ["CURRENT_TAG"]
           repo_url = os.environ["REPO_URL"]
 
-          # Find the previous tag (e.g., v1.1.2)
-          try:
-              prev_tag = subprocess.check_output(
-                  ["git", "describe", "--tags", "--abbrev=0", f"{current_tag}^"],
-                  text=True,
-                  stderr=subprocess.DEVNULL,
-              ).strip()
-              log_range = f"{prev_tag}..{current_tag}"
-          except subprocess.CalledProcessError:
-              prev_tag = ""
-              log_range = current_tag
+          # Find the latest tag that is NOT current_tag
+          tags_raw = subprocess.check_output(
+              ["git", "tag", "--sort=-v:refname"],
+              text=True,
+          ).strip()
+          tags = [t.strip() for t in tags_raw.splitlines() if t.strip()]
+          prev_tag = next((t for t in tags if t != current_tag), "")
 
-          # Get commit subjects (skip merges & automated release commits)
+          log_range = f"{prev_tag}..HEAD" if prev_tag else "HEAD"
+
           raw = subprocess.check_output(
               ["git", "log", log_range, "--no-merges", "--pretty=format:%s"],
               text=True,
@@ -101,7 +129,6 @@ jobs:
               if line.strip() and not line.strip().lower().startswith(("merge ", "chore(release)"))
           ]
 
-          # Fallback if only merge commits existed
           if not commits:
               raw_all = subprocess.check_output(
                   ["git", "log", log_range, "--pretty=format:%s"],
@@ -133,78 +160,154 @@ jobs:
               f.write(fdroid_text + "\n")
           EOF
 
-      # 7. Create GitHub Release with the commit changelog
-      - name: Create GitHub Release
+      # 7. Create GitHub Release with commit changelog
+      - name: Create New GitHub Release with Source Code
         uses: softprops/action-gh-release@v2
         with:
-          name: "Release ${{ github.ref_name }}"
+          tag_name: ${{ steps.app_info.outputs.tag_name }}
+          name: Release ${{ steps.app_info.outputs.tag_name }}
           body_path: release_notes.md
-          files: dist/Cadence-Mobile-${{ github.ref_name }}.apk
+          files: dist/${{ steps.app_info.outputs.apk_name }}
 
-      # 8. Checkout gh-pages branch (contains your F-Droid repo)
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: fdroid-site
-
-      # 9. Add APK and F-Droid changelog (<packageName>/en-US/changelogs/<versionCode>.txt)
-      - name: Add APK and changelog to F-Droid repo
-        run: |
-          APK_PATH="dist/Cadence-Mobile-${{ github.ref_name }}.apk"
-          mkdir -p fdroid-site/repo
-          cp "$APK_PATH" fdroid-site/repo/
-
-          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)
-          BADGING=$("$AAPT2" dump badging "$APK_PATH")
-
-          PACKAGE_NAME=$(echo "$BADGING" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -n 1)
-          VERSION_CODE=$(echo "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)
-
-          echo "Package: $PACKAGE_NAME | Version Code: $VERSION_CODE"
-
-          mkdir -p "fdroid-site/metadata/$PACKAGE_NAME/en-US/changelogs"
-          cp fdroid_notes.txt "fdroid-site/metadata/$PACKAGE_NAME/en-US/changelogs/$VERSION_CODE.txt"
-
-      # 10. Install fdroidserver & rebuild the F-Droid repository index
+      # 8. Build F-Droid repo + static GitHub Pages folder
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install fdroidserver
-        run: pip install fdroidserver
+      - name: Install fdroidserver & QR generator
+        run: pip install fdroidserver "qrcode[pil]"
 
-      - name: Update F-Droid repository
+      - name: Build F-Droid repository and Pages site
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_FULL: ${{ github.repository }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           ALIAS: ${{ secrets.ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          PACKAGE_NAME: ${{ steps.app_info.outputs.package_name }}
+          VERSION_CODE: ${{ steps.app_info.outputs.version_code }}
+          LATEST_TAG: ${{ steps.app_info.outputs.tag_name }}
+          LATEST_APK: ${{ steps.app_info.outputs.apk_name }}
         run: |
-          cd fdroid-site
+          mkdir -p site/repo "site/metadata/$PACKAGE_NAME/en-US/changelogs"
 
+          # Download all released APKs so "All Released Versions" & F-Droid repo stay complete
+          gh release list --repo "$REPO_FULL" --limit 30 --json tagName -q '.[].tagName' | while read -r TAG; do
+            gh release download "$TAG" --repo "$REPO_FULL" --pattern "*.apk" --dir site/repo --clobber || true
+          done
+
+          # Ensure latest APK and its F-Droid changelog are present
+          cp "dist/$LATEST_APK" "site/repo/$LATEST_APK"
+          cp fdroid_notes.txt "site/metadata/$PACKAGE_NAME/en-US/changelogs/${VERSION_CODE}.txt"
+
+          # Decode keystore outside site/ so it is never published
           echo "$SIGNING_KEY" | base64 -d > keystore.jks
 
+          FINGERPRINT=$(keytool -list -v -keystore keystore.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" \
+            | sed -n 's/.*SHA256:[[:space:]]*//p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')
+
+          REPO_URL="http://borisli713.github.io/Cadence-Mobile/repo"
+          FDROID_URI="fdroidrepos://${REPO_URL}?fingerprint=${FINGERPRINT}"
+
+          cd site
           cat > config.yml <<EOF
-          repo_url: "http://borisli713.github.io/Cadence-Mobile/repo"
+          repo_url: "${REPO_URL}"
           repo_name: "Cadence Mobile"
           repo_description: "Official F-Droid repository for Cadence Mobile"
-          keystore: "keystore.jks"
-          repo_keyalias: "$ALIAS"
-          keystorepass: "$KEY_STORE_PASSWORD"
-          keypass: "$KEY_PASSWORD"
+          keystore: "../keystore.jks"
+          repo_keyalias: "${ALIAS}"
+          keystorepass: "${KEY_STORE_PASSWORD}"
+          keypass: "${KEY_PASSWORD}"
           EOF
 
           fdroid update -c
+          rm -f config.yml
+          cd ..
 
-          # Remove private keystore & config before deploying to gh-pages
-          rm -f keystore.jks config.yml
+          # Generate repo-qr.png and clean index.html (no changelog clutter on HTML page)
+          FDROID_URI="$FDROID_URI" REPO_URL="$REPO_URL" LATEST_TAG="$LATEST_TAG" LATEST_APK="$LATEST_APK" python3 - <<'EOF'
+          import glob
+          import os
+          import re
+          import qrcode
 
-      # 11. Deploy updated F-Droid repo back to gh-pages
-      - name: Deploy updated F-Droid repo to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
+          fdroid_uri = os.environ["FDROID_URI"]
+          repo_url = os.environ["REPO_URL"]
+          latest_tag = os.environ["LATEST_TAG"]
+          latest_apk = os.environ["LATEST_APK"]
+
+          qr = qrcode.make(fdroid_uri)
+          qr.save("site/repo-qr.png")
+
+          apks = [os.path.basename(p) for p in glob.glob("site/repo/*.apk")]
+
+          def ver_key(name):
+              nums = [int(n) for n in re.findall(r"\d+", name)]
+              return nums
+
+          apks.sort(key=ver_key, reverse=True)
+          items_html = "\n".join(
+              f'        <li><a href="repo/{apk}">{apk}</a></li>' for apk in apks
+          )
+
+          html = f"""<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Cadence Mobile</title>
+            <style>
+              body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 16px; background: #0b1120; color: #f1f5f9; line-height: 1.6; }}
+              a {{ color: #38bdf8; }}
+              .card {{ background: #111a2e; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 24px; margin-bottom: 20px; }}
+              .btn {{ display: inline-block; padding: 10px 18px; border-radius: 8px; background: #38bdf8; color: #082f49; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }}
+              .btn-sec {{ background: rgba(255,255,255,0.1); color: #f1f5f9; margin-left: 8px; }}
+              .center {{ text-align: center; }}
+              img.qr {{ width: 180px; height: 180px; background: #fff; padding: 8px; border-radius: 8px; }}
+              code {{ background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 6px; word-break: break-all; }}
+            </style>
+          </head>
+          <body>
+            <p style="text-align:right;"><a href="https://github.com/borisli713/Cadence-Mobile">View on GitHub</a></p>
+            <div class="card">
+              <h1>Cadence Mobile</h1>
+              <p>Latest Version: <strong>{latest_tag}</strong></p>
+              <a class="btn" href="repo/{latest_apk}">Download Latest APK ({latest_tag})</a>
+            </div>
+            <div class="card center">
+              <h3>F-Droid Repository</h3>
+              <p>Scan the QR code or add the repo in F-Droid for automatic updates</p>
+              <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code" />
+              <p>
+                <a class="btn" href="{fdroid_uri}">Open in F-Droid</a>
+                <button class="btn btn-sec" onclick="navigator.clipboard.writeText('{repo_url}')">Copy Repo URL</button>
+              </p>
+              <p><code>{repo_url}</code></p>
+            </div>
+            <div class="card">
+              <h3>All Released Versions</h3>
+              <ul>
+          {items_html}
+              </ul>
+            </div>
+          </body>
+          </html>
+          """
+          with open("site/index.html", "w", encoding="utf-8") as f:
+              f.write(html)
+          EOF
+
+      # 9. Deploy to GitHub Pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./fdroid-site
-          keep_files: true
+          path: ./site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
