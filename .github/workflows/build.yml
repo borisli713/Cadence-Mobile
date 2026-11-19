@@ -35,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 2. Detect ./gradlew or fall back to installing Gradle directly
+      # 2. Detect ./gradlew or install Gradle 9.3.1 (required by AGP 9.1.1)
       - name: Detect Gradle wrapper
         id: gradle_detect
         run: |
@@ -44,11 +44,7 @@ jobs:
             echo "gradle_version=wrapper" >> "$GITHUB_OUTPUT"
           else
             echo "use_wrapper=false" >> "$GITHUB_OUTPUT"
-            VER=""
-            if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
-              VER=$(sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p' gradle/wrapper/gradle-wrapper.properties | head -n 1)
-            fi
-            echo "gradle_version=${VER:-8.13}" >> "$GITHUB_OUTPUT"
+            echo "gradle_version=9.3.1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Gradle
