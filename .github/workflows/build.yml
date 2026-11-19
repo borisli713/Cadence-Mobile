@@ -35,10 +35,28 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # 2. Detect ./gradlew or fall back to installing Gradle directly
+      - name: Detect Gradle wrapper
+        id: gradle_detect
+        run: |
+          if [ -f "./gradlew" ]; then
+            echo "use_wrapper=true" >> "$GITHUB_OUTPUT"
+            echo "gradle_version=wrapper" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_wrapper=false" >> "$GITHUB_OUTPUT"
+            VER=""
+            if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+              VER=$(sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p' gradle/wrapper/gradle-wrapper.properties | head -n 1)
+            fi
+            echo "gradle_version=${VER:-8.13}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.gradle_detect.outputs.gradle_version }}
 
-      # 2. Restore google-services.json (works with either raw JSON or base64)
+      # 3. Restore google-services.json (works with either raw JSON or base64)
       - name: Restore google-services.json
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -53,11 +71,17 @@ jobs:
               ;;
           esac
 
-      # 3. Build Release APK
+      # 4. Build Release APK
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: |
+          if [ "${{ steps.gradle_detect.outputs.use_wrapper }}" = "true" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleRelease
+          else
+            gradle assembleRelease
+          fi
 
-      # 4. Sign APK using your exact repository secrets
+      # 5. Sign APK using your exact repository secrets
       - name: Sign Release APK
         id: sign_app
         uses: r0adkll/sign-android-release@v1
@@ -68,7 +92,7 @@ jobs:
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      # 5. Extract package name, versionCode, and versionName directly from the signed APK
+      # 6. Extract package name, versionCode, and versionName directly from the signed APK
       - name: Read APK metadata & prepare artifact
         id: app_info
         run: |
@@ -94,7 +118,7 @@ jobs:
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
 
-      # 6. Generate commit-by-commit changelog since the previous release tag
+      # 7. Generate commit-by-commit changelog since the previous release tag
       - name: Generate changelog from commits
         env:
           CURRENT_TAG: ${{ steps.app_info.outputs.tag_name }}
@@ -160,7 +184,7 @@ jobs:
               f.write(fdroid_text + "\n")
           EOF
 
-      # 7. Create GitHub Release with commit changelog
+      # 8. Create GitHub Release with commit changelog
       - name: Create New GitHub Release with Source Code
         uses: softprops/action-gh-release@v2
         with:
@@ -169,7 +193,7 @@ jobs:
           body_path: release_notes.md
           files: dist/${{ steps.app_info.outputs.apk_name }}
 
-      # 8. Build F-Droid repo + static GitHub Pages folder
+      # 9. Build F-Droid repo + static GitHub Pages folder
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -244,8 +268,7 @@ jobs:
           apks = [os.path.basename(p) for p in glob.glob("site/repo/*.apk")]
 
           def ver_key(name):
-              nums = [int(n) for n in re.findall(r"\d+", name)]
-              return nums
+              return [int(n) for n in re.findall(r"\d+", name)]
 
           apks.sort(key=ver_key, reverse=True)
           items_html = "\n".join(
@@ -299,7 +322,7 @@ jobs:
               f.write(html)
           EOF
 
-      # 9. Deploy to GitHub Pages
+      # 10. Deploy to GitHub Pages
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
