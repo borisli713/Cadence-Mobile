@@ -78,4 +78,87 @@ class BackgroundNotificationPolicyTest {
         )
         assertEquals(listOf("notif_2"), secondBatch.map { it.id })
     }
+
+    @Test
+    fun filterUnnotifiedAlerts_preservesAllAlertsInLargeBatchAnd24HourWindow() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val uid = "user_batch_test_${System.currentTimeMillis()}"
+        val twoHoursAgo = Timestamp(Date(System.currentTimeMillis() - 2 * 60 * 60 * 1000L))
+
+        val sixAlerts = (1..6).map { index ->
+            PushNotificationRecord(
+                id = "batch_notif_$index",
+                recipientUid = uid,
+                title = "Shift Update $index",
+                message = "Shift update message $index",
+                category = NotificationCategory.SHIFT_ASSIGNED,
+                isRead = false,
+                createdAt = twoHoursAgo
+            )
+        }
+
+        val firstPass = NotificationHelper.filterUnnotifiedAlerts(
+            context = context,
+            uid = uid,
+            notifications = sixAlerts,
+            pushEnabled = true
+        )
+        assertEquals(6, firstPass.size)
+        assertEquals(sixAlerts.map { it.id }, firstPass.map { it.id })
+
+        // Re-evaluating with same list should not duplicate any of the 6 alerts
+        val secondPass = NotificationHelper.filterUnnotifiedAlerts(
+            context = context,
+            uid = uid,
+            notifications = sixAlerts,
+            pushEnabled = true
+        )
+        assertTrue(secondPass.isEmpty())
+    }
+
+    @Test
+    fun filterNewManagerWorkAlerts_seedsBacklogFirstAndAlertsOnNewRequests() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val mgrUid = "mgr_bg_test_${System.currentTimeMillis()}"
+
+        val existingItem = PendingAlertPayload(
+            id = "mgr_chg_existing",
+            title = "New Shift Request",
+            message = "Existing pending item",
+            targetTabRoute = NotificationHelper.TAB_APPROVALS
+        )
+
+        // First launch seeds existing backlog without spamming
+        val initial = NotificationHelper.filterNewManagerWorkAlerts(
+            context = context,
+            uid = mgrUid,
+            items = listOf(existingItem),
+            pushEnabled = true
+        )
+        assertTrue(initial.isEmpty())
+
+        // Newly arriving pending request triggers once
+        val newItem = PendingAlertPayload(
+            id = "mgr_to_new1",
+            title = "New Time-Off Request",
+            message = "Alex requested time off",
+            targetTabRoute = NotificationHelper.TAB_TIME_OFF
+        )
+        val afterNew = NotificationHelper.filterNewManagerWorkAlerts(
+            context = context,
+            uid = mgrUid,
+            items = listOf(existingItem, newItem),
+            pushEnabled = true
+        )
+        assertEquals(listOf("mgr_to_new1"), afterNew.map { it.id })
+
+        // Repeat poll does not duplicate
+        val repeat = NotificationHelper.filterNewManagerWorkAlerts(
+            context = context,
+            uid = mgrUid,
+            items = listOf(existingItem, newItem),
+            pushEnabled = true
+        )
+        assertTrue(repeat.isEmpty())
+    }
 }

@@ -411,10 +411,11 @@ class CadenceRepository(
 
         val effectiveUid = if (status == ShiftStatus.OPEN) "" else assignedUid
         val effectiveName = if (status == ShiftStatus.OPEN) "" else assignedName
+        val cleanTitle = title.trim().ifBlank { "Assigned Shift" }.take(120)
 
         val payload = mapOf(
             "id" to id,
-            "title" to title.trim(),
+            "title" to cleanTitle,
             "department" to department.trim(),
             "date" to date,
             "startTime" to startTime,
@@ -430,8 +431,30 @@ class CadenceRepository(
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        val batch = db.batch()
+        batch.set(docRef, payload)
+
+        if (effectiveUid.isNotBlank() && effectiveUid != actorUid && status != ShiftStatus.OPEN) {
+            val notifId = newId("ntf")
+            batch.set(
+                db.collection("notifications").document(notifId),
+                mapOf(
+                    "id" to notifId,
+                    "recipientUid" to effectiveUid,
+                    "title" to "New Shift Assigned",
+                    "message" to "$cleanTitle on $date ($startTime-$endTime) was assigned to you.".take(400),
+                    "category" to NotificationCategory.SHIFT_ASSIGNED.value,
+                    "relatedShiftId" to id,
+                    "isRead" to false,
+                    "actorUid" to actorUid,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            )
+        }
+
         try {
-            docRef.set(payload).await()
+            batch.commit().await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -453,14 +476,17 @@ class CadenceRepository(
         status: ShiftStatus,
         fairnessNote: String
     ) {
-        requireUserId()
+        val actorUid = requireUserId()
         val docRef = db.collection("shifts").document(shiftId)
+        val previousShift = runCatching { docRef.get().await().toShift() }.getOrNull()
+
         val duration = FairnessEngine.computeShiftHours(startTime, endTime)
         val effectiveUid = if (status == ShiftStatus.OPEN) "" else assignedUid
         val effectiveName = if (status == ShiftStatus.OPEN) "" else assignedName
+        val cleanTitle = title.trim().ifBlank { "Assigned Shift" }.take(120)
 
         val payload = mapOf(
-            "title" to title.trim(),
+            "title" to cleanTitle,
             "department" to department.trim(),
             "date" to date,
             "startTime" to startTime,
@@ -472,8 +498,47 @@ class CadenceRepository(
             "fairnessNote" to fairnessNote.take(300),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        val batch = db.batch()
+        batch.update(docRef, payload)
+
+        if (effectiveUid.isNotBlank() && effectiveUid != actorUid && status != ShiftStatus.OPEN) {
+            val isNewAssignment = previousShift == null ||
+                previousShift.assignedUid != effectiveUid ||
+                previousShift.status == ShiftStatus.OPEN
+            val scheduleChanged = previousShift != null && (
+                previousShift.date != date ||
+                    previousShift.startTime != startTime ||
+                    previousShift.endTime != endTime ||
+                    previousShift.title != cleanTitle
+                )
+            if (isNewAssignment || scheduleChanged) {
+                val notifId = newId("ntf")
+                val notifTitle = if (isNewAssignment) "New Shift Assigned" else "Shift Schedule Updated"
+                val notifMessage = if (isNewAssignment) {
+                    "$cleanTitle on $date ($startTime-$endTime) was assigned to you."
+                } else {
+                    "Your shift $cleanTitle was updated to $date ($startTime-$endTime)."
+                }
+                batch.set(
+                    db.collection("notifications").document(notifId),
+                    mapOf(
+                        "id" to notifId,
+                        "recipientUid" to effectiveUid,
+                        "title" to notifTitle,
+                        "message" to notifMessage.take(400),
+                        "category" to NotificationCategory.SHIFT_ASSIGNED.value,
+                        "relatedShiftId" to shiftId,
+                        "isRead" to false,
+                        "actorUid" to actorUid,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+            }
+        }
+
         try {
-            docRef.update(payload).await()
+            batch.commit().await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

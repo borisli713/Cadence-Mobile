@@ -484,6 +484,26 @@ class CadenceRepositoryRuleTest : FirestoreEmulatorTestBase() {
                 .filter { it.assignedUid == staffUid && it.status != ShiftStatus.OPEN }
         }
         assertEquals(listOf(openShiftId), updatedMyShifts.map { it.id })
+
+        // Verify staff received SHIFT_ASSIGNED notifications for both manual creation & assignment update
+        val staffNotifs = withTimeout(FLOW_TIMEOUT_MS) {
+            staffRepo.observeNotifications(staffUid, isManager = false)
+                .first { list ->
+                    list.any { it.relatedShiftId == assignedShiftId && it.category == NotificationCategory.SHIFT_ASSIGNED } &&
+                        list.any { it.relatedShiftId == openShiftId && it.category == NotificationCategory.SHIFT_ASSIGNED }
+                }
+        }
+        assertTrue(staffNotifs.any { it.relatedShiftId == openShiftId && !it.isRead })
+
+        // Reassigned coworker also received a SHIFT_ASSIGNED notification
+        signInTestUser(otherEmail)
+        val otherNotifs = withTimeout(FLOW_TIMEOUT_MS) {
+            otherRepo.observeNotifications(otherUid, isManager = false)
+                .first { list ->
+                    list.any { it.relatedShiftId == assignedShiftId && it.category == NotificationCategory.SHIFT_ASSIGNED }
+                }
+        }
+        assertTrue(otherNotifs.isNotEmpty())
     }
 
     private companion object {

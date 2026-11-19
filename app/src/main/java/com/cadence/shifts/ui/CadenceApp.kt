@@ -316,16 +316,31 @@ private fun WorkspaceRoot(
             pushEnabled = liveData.profile.pushNotificationsEnabled
         )
         if (alerts.isNotEmpty()) {
-            alerts.take(3).forEach { alert ->
-                NotificationHelper.dispatchLocalNotification(
-                    context = context,
-                    title = alert.title,
-                    message = alert.message,
-                    notificationId = alert.id.hashCode()
-                )
-            }
+            NotificationHelper.dispatchNotificationsSequentially(context, alerts)
             val latest = alerts.first()
             viewModel.showBanner("${latest.title}: ${latest.message}")
+        }
+
+        if (liveData.isManager) {
+            val managerPayloads = NotificationHelper.buildManagerWorkPayloads(
+                managerUid = liveData.profile.uid,
+                scheduleChanges = liveData.scheduleChanges,
+                timeOffRequests = liveData.timeOffRequests,
+                shiftReports = liveData.shiftReports
+            )
+            val mgrAlerts = NotificationHelper.filterNewManagerWorkAlerts(
+                context = context,
+                uid = liveData.profile.uid,
+                items = managerPayloads,
+                pushEnabled = liveData.profile.pushNotificationsEnabled
+            )
+            if (mgrAlerts.isNotEmpty()) {
+                NotificationHelper.dispatchManagerPayloadsSequentially(context, mgrAlerts)
+                if (alerts.isEmpty()) {
+                    val latest = mgrAlerts.first()
+                    viewModel.showBanner("${latest.title}: ${latest.message}")
+                }
+            }
         }
     }
 

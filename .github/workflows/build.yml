@@ -1,590 +1,210 @@
-name: Build Versioned APK, Release, and F-Droid Repo
+name: Release APK & Update F-Droid Repo
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  release:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      # 1. Checkout full git history so tags and commit logs are available
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Calculate Next Version (Start 1.1.0, +0.0.1)
-        id: version
-        run: |
-          set -euo pipefail
-          git fetch --tags
-          BASE_VER="1.1.0"
-          LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
-          if [ -z "$LATEST_TAG" ]; then
-            NEXT_VER="$BASE_VER"
-          else
-            CLEAN_VER=${LATEST_TAG#v}
-            if [ "$(printf '%s\n' "$BASE_VER" "$CLEAN_VER" | sort -V | head -n 1)" = "$CLEAN_VER" ] && [ "$CLEAN_VER" != "$BASE_VER" ]; then
-              NEXT_VER="$BASE_VER"
-            else
-              MAJOR=$(echo "$CLEAN_VER" | cut -d. -f1)
-              MINOR=$(echo "$CLEAN_VER" | cut -d. -f2)
-              PATCH=$(echo "$CLEAN_VER" | cut -d. -f3)
-              NEXT_PATCH=$((10#$PATCH + 1))
-              NEXT_VER="$((10#$MAJOR)).$((10#$MINOR)).${NEXT_PATCH}"
-            fi
-          fi
-          MAJOR=$(echo "$NEXT_VER" | cut -d. -f1)
-          MINOR=$(echo "$NEXT_VER" | cut -d. -f2)
-          PATCH=$(echo "$NEXT_VER" | cut -d. -f3)
-          VER_CODE=$((10#$MAJOR * 10000 + 10#$MINOR * 100 + 10#$PATCH))
-          echo "name=$NEXT_VER" >> "$GITHUB_OUTPUT"
-          echo "code=$VER_CODE" >> "$GITHUB_OUTPUT"
-          echo "tag=v$NEXT_VER" >> "$GITHUB_OUTPUT"
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: 17
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
 
-      - name: Decode google-services.json
+      # 2. Restore google-services.json (handles either raw JSON or base64)
+      - name: Restore google-services.json
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: printf '%s' "$GOOGLE_SERVICES_JSON" | base64 --decode > app/google-services.json
-
-      - name: Build Versioned Release APK
-        env:
-          VER_CODE: ${{ steps.version.outputs.code }}
-          VER_NAME: ${{ steps.version.outputs.name }}
         run: |
-          set -euo pipefail
-          sed -i -E "s/(versionCode[[:space:]]*=[[:space:]]*)[0-9]+/\1${VER_CODE}/g" app/build.gradle.kts
-          sed -i -E "s/(versionName[[:space:]]*=[[:space:]]*)\"[^\"]*\"/\1\"${VER_NAME}\"/g" app/build.gradle.kts
-          gradle assembleRelease
+          TRIMMED=$(printf '%s' "$GOOGLE_SERVICES_JSON" | sed 's/^[[:space:]]*//')
+          case "$TRIMMED" in
+            \{*)
+              printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+              ;;
+            *)
+              echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+              ;;
+          esac
 
-      - name: Align and Sign APK
+      # 3. Build Release APK
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      # 4. Sign APK using your exact repository secrets
+      - name: Sign Release APK
+        id: sign_app
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      # 5. Copy & rename signed APK to Cadence-Mobile-vX.Y.Z.apk
+      - name: Prepare APK artifact
+        run: |
+          mkdir -p dist
+          cp "${{ steps.sign_app.outputs.signedReleaseFile }}" "dist/Cadence-Mobile-${{ github.ref_name }}.apk"
+
+      # 6. Generate commit-by-commit changelog for GitHub Release & F-Droid
+      - name: Generate changelog from commits
+        env:
+          CURRENT_TAG: ${{ github.ref_name }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          import subprocess
+
+          current_tag = os.environ["CURRENT_TAG"]
+          repo_url = os.environ["REPO_URL"]
+
+          # Find the previous tag (e.g., v1.1.2)
+          try:
+              prev_tag = subprocess.check_output(
+                  ["git", "describe", "--tags", "--abbrev=0", f"{current_tag}^"],
+                  text=True,
+                  stderr=subprocess.DEVNULL,
+              ).strip()
+              log_range = f"{prev_tag}..{current_tag}"
+          except subprocess.CalledProcessError:
+              prev_tag = ""
+              log_range = current_tag
+
+          # Get commit subjects (skip merges & automated release commits)
+          raw = subprocess.check_output(
+              ["git", "log", log_range, "--no-merges", "--pretty=format:%s"],
+              text=True,
+          ).strip()
+
+          commits = [
+              line.strip()
+              for line in raw.splitlines()
+              if line.strip() and not line.strip().lower().startswith(("merge ", "chore(release)"))
+          ]
+
+          # Fallback if only merge commits existed
+          if not commits:
+              raw_all = subprocess.check_output(
+                  ["git", "log", log_range, "--pretty=format:%s"],
+                  text=True,
+              ).strip()
+              commits = [line.strip() for line in raw_all.splitlines() if line.strip()]
+
+          if not commits:
+              commits = ["Bug fixes and improvements."]
+
+          # A. Markdown release notes for the GitHub Release page
+          gh_lines = ["## What's Changed", ""]
+          for c in commits:
+              gh_lines.append(f"- {c}")
+
+          if prev_tag:
+              gh_lines.append("")
+              gh_lines.append(f"**Full Changelog**: {repo_url}/compare/{prev_tag}...{current_tag}")
+
+          with open("release_notes.md", "w", encoding="utf-8") as f:
+              f.write("\n".join(gh_lines) + "\n")
+
+          # B. Plain-text changelog for F-Droid (max 500 characters)
+          fdroid_text = "\n".join(f"• {c}" for c in commits)
+          if len(fdroid_text) > 500:
+              fdroid_text = fdroid_text[:497].rstrip() + "..."
+
+          with open("fdroid_notes.txt", "w", encoding="utf-8") as f:
+              f.write(fdroid_text + "\n")
+          EOF
+
+      # 7. Create GitHub Release with the commit changelog
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Release ${{ github.ref_name }}"
+          body_path: release_notes.md
+          files: dist/Cadence-Mobile-${{ github.ref_name }}.apk
+
+      # 8. Checkout gh-pages branch (contains your F-Droid repo)
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: fdroid-site
+
+      # 9. Add APK and F-Droid changelog (<packageName>/en-US/changelogs/<versionCode>.txt)
+      - name: Add APK and changelog to F-Droid repo
+        run: |
+          APK_PATH="dist/Cadence-Mobile-${{ github.ref_name }}.apk"
+          mkdir -p fdroid-site/repo
+          cp "$APK_PATH" fdroid-site/repo/
+
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)
+          BADGING=$("$AAPT2" dump badging "$APK_PATH")
+
+          PACKAGE_NAME=$(echo "$BADGING" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -n 1)
+          VERSION_CODE=$(echo "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)
+
+          echo "Package: $PACKAGE_NAME | Version Code: $VERSION_CODE"
+
+          mkdir -p "fdroid-site/metadata/$PACKAGE_NAME/en-US/changelogs"
+          cp fdroid_notes.txt "fdroid-site/metadata/$PACKAGE_NAME/en-US/changelogs/$VERSION_CODE.txt"
+
+      # 10. Install fdroidserver & rebuild the F-Droid repository index
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install fdroidserver
+        run: pip install fdroidserver
+
+      - name: Update F-Droid repository
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           ALIAS: ${{ secrets.ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          set -euo pipefail
-          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
-          printf '%s' "$SIGNING_KEY" | base64 --decode > release.jks
-          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          if [ -z "$UNSIGNED_APK" ]; then
-            echo "Error: No release APK found under app/build/outputs/apk/release" >&2
-            exit 1
-          fi
-          "$BUILD_TOOLS/zipalign" -v -p 4 "$UNSIGNED_APK" aligned.apk
-          "$BUILD_TOOLS/apksigner" sign --ks release.jks \
-            --ks-key-alias "$ALIAS" \
-            --ks-pass "pass:$KEY_STORE_PASSWORD" \
-            --key-pass "pass:$KEY_PASSWORD" \
-            --out "Cadence-Mobile-${TAG}.apk" aligned.apk
+          cd fdroid-site
 
-      - name: Create New GitHub Release with Source Code
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: Release ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
-          files: Cadence-Mobile-${{ steps.version.outputs.tag }}.apk
+          echo "$SIGNING_KEY" | base64 -d > keystore.jks
 
-      - name: Setup Pages
-        id: pages
-        uses: actions/configure-pages@v5
-
-      - name: Build F-Droid Repo and Multi-Version Download Page
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_KEYALIAS: ${{ secrets.ALIAS }}
-          KEYSTORE_PASS: ${{ secrets.KEY_STORE_PASSWORD }}
-          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-          TAG: ${{ steps.version.outputs.tag }}
-          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y fdroidserver qrencode
-
-          mkdir -p fdroid/repo fdroid/metadata
-          cp "Cadence-Mobile-${TAG}.apk" fdroid/repo/
-
-          MIN_VER="1.0.9"
-          while IFS= read -r OLD_TAG; do
-            if [ -n "$OLD_TAG" ] && [ "$OLD_TAG" != "$TAG" ]; then
-              CLEAN_OLD="${OLD_TAG#v}"
-              if [[ "$CLEAN_OLD" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && \
-                 [ "$CLEAN_OLD" != "1.0.12" ] && \
-                 [ "$(printf '%s\n' "$MIN_VER" "$CLEAN_OLD" | sort -V | head -n 1)" = "$MIN_VER" ]; then
-                gh release download "$OLD_TAG" --pattern "*.apk" --dir fdroid/repo/ --skip-existing || true
-              fi
-            fi
-          done < <(gh release list --limit 50 --json tagName -q '.[].tagName')
-
-          if [ -z "$PAGES_BASE_URL" ]; then
-            OWNER="${GITHUB_REPOSITORY%%/*}"
-            REPO_NAME="${GITHUB_REPOSITORY#*/}"
-            if [ "$REPO_NAME" = "${OWNER}.github.io" ]; then
-              PAGES_BASE_URL="https://${OWNER}.github.io"
-            else
-              PAGES_BASE_URL="https://${OWNER}.github.io/${REPO_NAME}"
-            fi
-          fi
-          PAGES_BASE_URL="${PAGES_BASE_URL%/}"
-          REPO_URL="${PAGES_URL:-$PAGES_BASE_URL}/repo"
-
-          cd fdroid
-          cat << EOF > config.yml
-          repo_url: "${REPO_URL}"
+          cat > config.yml <<EOF
+          repo_url: "http://borisli713.github.io/Cadence-Mobile/repo"
           repo_name: "Cadence Mobile"
           repo_description: "Official F-Droid repository for Cadence Mobile"
-          archive_older: 0
-          keystore: "../release.jks"
-          repo_keyalias: {env: REPO_KEYALIAS}
-          keystorepass: {env: KEYSTORE_PASS}
-          keypass: {env: KEY_PASS}
-          EOF
-          chmod 600 config.yml
-
-          fdroid update --create-metadata --use-date-from-apk
-          rm -f config.yml
-
-          FINGERPRINT=$(LC_ALL=C keytool -list -v -keystore ../release.jks -alias "$REPO_KEYALIAS" -storepass "$KEYSTORE_PASS" \
-            | grep -m 1 "SHA256:" \
-            | sed 's/.*SHA256: //;s/://g' \
-            | tr -d '[:space:]')
-          if [ -z "$FINGERPRINT" ]; then
-            echo "Error: Failed to extract SHA256 fingerprint from release.jks" >&2
-            exit 1
-          fi
-
-          REPO_URI="${REPO_URL}?fingerprint=${FINGERPRINT}"
-          FDROID_DEEP_LINK="fdroidrepos://${REPO_URL#https://}?fingerprint=${FINGERPRINT}"
-          qrencode -s 6 -o repo-qr.png "$REPO_URI"
-
-          PAST_LINKS=""
-          while IFS= read -r apk; do
-            fname=$(basename "$apk")
-            PAST_LINKS="${PAST_LINKS}<li><a href=\"repo/${fname}\" download><span class=\"ver-name\">${fname}</span><span class=\"ver-dl\">Download</span></a></li>"
-          done < <(ls -1v repo/*.apk | tac)
-
-          cat << EOF > index.html
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Cadence Mobile</title>
-            <style>
-              :root {
-                --bg: #f4f7fb;
-                --card: rgba(255, 255, 255, 0.82);
-                --card-border: rgba(15, 23, 42, 0.08);
-                --text: #0f172a;
-                --muted: #475569;
-                --accent: #2563eb;
-                --accent-2: #4f46e5;
-                --pill-bg: rgba(37, 99, 235, 0.1);
-                --pill-text: #1d4ed8;
-                --item-bg: rgba(248, 250, 252, 0.9);
-                --item-hover: #ffffff;
-                --code-bg: #eef2f7;
-                --shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
-              }
-              @media (prefers-color-scheme: dark) {
-                :root {
-                  --bg: #0b1120;
-                  --card: rgba(15, 23, 42, 0.78);
-                  --card-border: rgba(148, 163, 184, 0.14);
-                  --text: #f1f5f9;
-                  --muted: #94a3b8;
-                  --accent: #3b82f6;
-                  --accent-2: #6366f1;
-                  --pill-bg: rgba(59, 130, 246, 0.16);
-                  --pill-text: #93c5fd;
-                  --item-bg: rgba(30, 41, 59, 0.65);
-                  --item-hover: rgba(30, 41, 59, 0.95);
-                  --code-bg: #1e293b;
-                  --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-                }
-              }
-              * { box-sizing: border-box; }
-              body {
-                margin: 0;
-                min-height: 100vh;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-                background: var(--bg);
-                color: var(--text);
-                overflow-x: hidden;
-                position: relative;
-                line-height: 1.5;
-              }
-              .bg-orb {
-                position: fixed;
-                border-radius: 50%;
-                filter: blur(80px);
-                opacity: 0.45;
-                z-index: -1;
-                pointer-events: none;
-                animation: floatOrb 12s ease-in-out infinite alternate;
-              }
-              .orb-1 {
-                width: 340px;
-                height: 340px;
-                background: radial-gradient(circle, #3b82f6, transparent 70%);
-                top: -90px;
-                left: -80px;
-              }
-              .orb-2 {
-                width: 380px;
-                height: 380px;
-                background: radial-gradient(circle, #8b5cf6, transparent 70%);
-                bottom: -100px;
-                right: -90px;
-                animation-delay: -6s;
-              }
-              .container {
-                max-width: 620px;
-                margin: 0 auto;
-                padding: 44px 18px 64px;
-              }
-              .card {
-                background: var(--card);
-                border: 1px solid var(--card-border);
-                border-radius: 22px;
-                padding: 28px 24px;
-                margin-bottom: 20px;
-                box-shadow: var(--shadow);
-                backdrop-filter: blur(16px);
-                -webkit-backdrop-filter: blur(16px);
-                text-align: center;
-                animation: fadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
-              }
-              .card-fdroid { animation-delay: 0.1s; }
-              .card-releases { animation-delay: 0.2s; text-align: left; }
-              .top-bar {
-                display: flex;
-                justify-content: center;
-                margin-bottom: 14px;
-              }
-              .github-link {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                color: var(--text);
-                background: var(--item-bg);
-                border: 1px solid var(--card-border);
-                text-decoration: none;
-                font-size: 0.9rem;
-                font-weight: 600;
-                padding: 8px 15px;
-                border-radius: 999px;
-                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-              }
-              .github-link:hover {
-                transform: translateY(-2px);
-                background: var(--item-hover);
-                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-              }
-              .github-link svg {
-                transition: transform 0.25s ease;
-              }
-              .github-link:hover svg {
-                transform: scale(1.1) rotate(-6deg);
-              }
-              h1 {
-                margin: 0 0 12px;
-                font-size: 2rem;
-                font-weight: 800;
-                letter-spacing: -0.02em;
-              }
-              .version-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                background: var(--pill-bg);
-                color: var(--pill-text);
-                font-weight: 600;
-                font-size: 0.92rem;
-                padding: 6px 14px;
-                border-radius: 999px;
-                margin-bottom: 22px;
-              }
-              .pulse-dot {
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background: #22c55e;
-                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
-                animation: pulseDot 2s infinite;
-              }
-              .btn {
-                position: relative;
-                overflow: hidden;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                gap: 10px;
-                background: linear-gradient(135deg, var(--accent), var(--accent-2));
-                color: #ffffff;
-                padding: 15px 28px;
-                text-decoration: none;
-                border-radius: 14px;
-                font-weight: 700;
-                font-size: 1rem;
-                box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-              }
-              .btn::after {
-                content: "";
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 40%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-                animation: shimmer 3.8s infinite;
-              }
-              .btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 14px 30px rgba(37, 99, 235, 0.36);
-              }
-              .btn:active {
-                transform: translateY(0);
-              }
-              h3 {
-                margin: 0 0 14px;
-                font-size: 1.15rem;
-                font-weight: 700;
-              }
-              .subtitle {
-                margin: -6px 0 18px;
-                font-size: 0.92rem;
-                color: var(--muted);
-              }
-              .qr-wrap {
-                display: inline-block;
-                background: #ffffff;
-                padding: 12px;
-                border-radius: 18px;
-                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-                margin-bottom: 18px;
-                transition: transform 0.25s ease;
-              }
-              .qr-wrap:hover {
-                transform: scale(1.03);
-              }
-              .qr {
-                width: 200px;
-                height: 200px;
-                display: block;
-              }
-              .fdroid-actions {
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 10px;
-                margin-bottom: 16px;
-              }
-              .btn-secondary {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                background: var(--pill-bg);
-                color: var(--pill-text);
-                border: none;
-                padding: 10px 16px;
-                border-radius: 10px;
-                font-size: 0.92rem;
-                font-weight: 600;
-                text-decoration: none;
-                cursor: pointer;
-                font-family: inherit;
-                transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
-              }
-              .btn-secondary:hover {
-                transform: translateY(-1px);
-                opacity: 0.9;
-              }
-              .btn-secondary.copied {
-                background: rgba(34, 197, 94, 0.16);
-                color: #16a34a;
-              }
-              code {
-                background: var(--code-bg);
-                color: var(--muted);
-                padding: 8px 12px;
-                border-radius: 10px;
-                font-size: 0.82rem;
-                word-break: break-all;
-                display: inline-block;
-                max-width: 100%;
-              }
-              ul {
-                list-style: none;
-                padding: 0;
-                margin: 0;
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-              }
-              li a {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 12px;
-                padding: 13px 16px;
-                background: var(--item-bg);
-                border: 1px solid var(--card-border);
-                border-radius: 12px;
-                color: var(--text);
-                text-decoration: none;
-                font-size: 0.94rem;
-                font-weight: 500;
-                transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
-              }
-              li a:hover {
-                transform: translateX(4px);
-                background: var(--item-hover);
-                border-color: var(--accent);
-              }
-              .ver-name {
-                word-break: break-all;
-              }
-              .ver-dl {
-                flex-shrink: 0;
-                font-size: 0.8rem;
-                font-weight: 700;
-                color: var(--pill-text);
-                background: var(--pill-bg);
-                padding: 4px 10px;
-                border-radius: 8px;
-              }
-              @keyframes fadeUp {
-                from { opacity: 0; transform: translateY(18px); }
-                to { opacity: 1; transform: translateY(0); }
-              }
-              @keyframes floatOrb {
-                from { transform: translate(0, 0) scale(1); }
-                to { transform: translate(28px, 24px) scale(1.08); }
-              }
-              @keyframes pulseDot {
-                0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.65); }
-                70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-              }
-              @keyframes shimmer {
-                0% { transform: translateX(-120%) skewX(-18deg); }
-                45%, 100% { transform: translateX(320%) skewX(-18deg); }
-              }
-              @media (prefers-reduced-motion: reduce) {
-                *, *::before, *::after {
-                  animation: none !important;
-                  transition: none !important;
-                }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="bg-orb orb-1"></div>
-            <div class="bg-orb orb-2"></div>
-
-            <main class="container">
-              <section class="card">
-                <div class="top-bar">
-                  <a class="github-link" href="https://github.com/borisli713/Cadence-Mobile" aria-label="View Cadence Mobile on GitHub">
-                    <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
-                      <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
-                    </svg>
-                    <span>View on GitHub</span>
-                  </a>
-                </div>
-                <h1>Cadence Mobile</h1>
-                <div class="version-badge">
-                  <span class="pulse-dot"></span>
-                  <span>Latest Version: ${TAG}</span>
-                </div>
-                <div>
-                  <a class="btn" href="repo/Cadence-Mobile-${TAG}.apk" download>
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                      <polyline points="7 10 12 15 17 10"></polyline>
-                      <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                    <span>Download Latest APK (${TAG})</span>
-                  </a>
-                </div>
-              </section>
-
-              <section class="card card-fdroid">
-                <h3>F-Droid Repository</h3>
-                <p class="subtitle">Scan the QR code or add the repo in F-Droid for automatic updates</p>
-                <div class="qr-wrap">
-                  <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code">
-                </div>
-                <div class="fdroid-actions">
-                  <a class="btn-secondary" href="${FDROID_DEEP_LINK}">Open in F-Droid</a>
-                  <button type="button" id="copy-btn" class="btn-secondary" onclick="copyRepoUrl()">Copy Repo URL</button>
-                </div>
-                <code id="repo-url">${REPO_URL}</code>
-              </section>
-
-              <section class="card card-releases">
-                <h3>All Released Versions</h3>
-                <ul>${PAST_LINKS}</ul>
-              </section>
-            </main>
-
-            <script>
-              function copyRepoUrl() {
-                var url = document.getElementById('repo-url').textContent;
-                var btn = document.getElementById('copy-btn');
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                  navigator.clipboard.writeText(url).then(function() {
-                    btn.textContent = 'Copied!';
-                    btn.classList.add('copied');
-                    setTimeout(function() {
-                      btn.textContent = 'Copy Repo URL';
-                      btn.classList.remove('copied');
-                    }, 2000);
-                  });
-                }
-              }
-            </script>
-          </body>
-          </html>
+          keystore: "keystore.jks"
+          repo_keyalias: "$ALIAS"
+          keystorepass: "$KEY_STORE_PASSWORD"
+          keypass: "$KEY_PASSWORD"
           EOF
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+          fdroid update -c
+
+          # Remove private keystore & config before deploying to gh-pages
+          rm -f keystore.jks config.yml
+
+      # 11. Deploy updated F-Droid repo back to gh-pages
+      - name: Deploy updated F-Droid repo to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: 'fdroid'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./fdroid-site
+          keep_files: true
