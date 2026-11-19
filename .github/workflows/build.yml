@@ -77,10 +77,17 @@ jobs:
             gradle assembleRelease
           fi
 
-      # 5. Sign APK using your exact repository secrets
+      # 5. Detect installed Android build-tools & sign APK using your exact secrets
+      - name: Detect latest Android build-tools
+        run: |
+          BUILD_TOOLS_VER=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
+          echo "BUILD_TOOLS_VER=$BUILD_TOOLS_VER" >> "$GITHUB_ENV"
+
       - name: Sign Release APK
         id: sign_app
         uses: r0adkll/sign-android-release@v1
+        env:
+          BUILD_TOOLS_VERSION: ${{ env.BUILD_TOOLS_VER }}
         with:
           releaseDirectory: app/build/outputs/apk/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
@@ -224,6 +231,7 @@ jobs:
 
           # Decode keystore outside site/ so it is never published
           echo "$SIGNING_KEY" | base64 -d > keystore.jks
+          chmod 600 keystore.jks
 
           FINGERPRINT=$(keytool -list -v -keystore keystore.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" \
             | sed -n 's/.*SHA256:[[:space:]]*//p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')
@@ -241,6 +249,7 @@ jobs:
           keystorepass: "${KEY_STORE_PASSWORD}"
           keypass: "${KEY_PASSWORD}"
           EOF
+          chmod 600 config.yml
 
           fdroid update -c
           rm -f config.yml
