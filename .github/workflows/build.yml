@@ -52,7 +52,7 @@ jobs:
         with:
           gradle-version: ${{ steps.gradle_detect.outputs.gradle_version }}
 
-      # 3. Compute next version (starts at 1.1.6, then +0.0.1 each build) & patch Gradle config
+      # 3. Scan ALL released APKs for the highest versionCode, compute next version, & patch Gradle
       - name: Compute & apply next app version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,28 +60,32 @@ jobs:
         run: |
           git fetch --tags --force
 
-          # Inspect the latest released APK's versionCode so Android/F-Droid updates always work
-          PREV_VC=0
-          LATEST_REL_TAG=$(gh release list --repo "$REPO_FULL" --limit 1 --json tagName -q '.[0].tagName' || true)
-          if [ -n "$LATEST_REL_TAG" ]; then
-            mkdir -p prev_apk
-            gh release download "$LATEST_REL_TAG" --repo "$REPO_FULL" --pattern "*.apk" --dir prev_apk --clobber || true
-            PREV_APK=$(find prev_apk -name "*.apk" | head -n 1)
-            if [ -n "$PREV_APK" ]; then
-              AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)
-              PREV_VC=$("$AAPT2" dump badging "$PREV_APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)
-            fi
-            rm -rf prev_apk
-          fi
+          mkdir -p prev_apks
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)
+          MAX_VC=0
 
-          PREV_VC="${PREV_VC:-0}" python3 - <<'EOF'
+          for TAG in $(gh release list --repo "$REPO_FULL" --limit 100 --json tagName -q '.[].tagName'); do
+            mkdir -p "prev_apks/$TAG"
+            gh release download "$TAG" --repo "$REPO_FULL" --pattern "*.apk" --dir "prev_apks/$TAG" --clobber || true
+          done
+
+          while IFS= read -r -d '' apk; do
+            VC=$("$AAPT2" dump badging "$apk" 2>/dev/null | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)
+            if [[ "$VC" =~ ^[0-9]+$ ]] && [ "$VC" -gt "$MAX_VC" ]; then
+              MAX_VC="$VC"
+            fi
+          done < <(find prev_apks -name "*.apk" -print0)
+
+          rm -rf prev_apks
+          echo "Highest existing versionCode across all releases: $MAX_VC"
+
+          PREV_VC="$MAX_VC" python3 - <<'EOF'
           import os
           import re
           import subprocess
 
           prev_vc = int(os.environ.get("PREV_VC") or 0)
 
-          # Find highest existing semver tag (e.g. v1.1.3 -> (1, 1, 3))
           tags_raw = subprocess.check_output(["git", "tag"], text=True).strip()
           versions = []
           for line in tags_raw.splitlines():
@@ -194,7 +198,6 @@ jobs:
           current_tag = os.environ["CURRENT_TAG"]
           repo_url = os.environ["REPO_URL"]
 
-          # Find the latest tag that is NOT current_tag
           tags_raw = subprocess.check_output(
               ["git", "tag", "--sort=-v:refname"],
               text=True,
@@ -225,7 +228,6 @@ jobs:
           if not commits:
               commits = ["Bug fixes and improvements."]
 
-          # A. Markdown release notes for the GitHub Release page
           gh_lines = ["## What's Changed", ""]
           for c in commits:
               gh_lines.append(f"- {c}")
@@ -237,7 +239,6 @@ jobs:
           with open("release_notes.md", "w", encoding="utf-8") as f:
               f.write("\n".join(gh_lines) + "\n")
 
-          # B. Plain-text changelog for F-Droid (max 500 characters)
           fdroid_text = "\n".join(f"• {c}" for c in commits)
           if len(fdroid_text) > 500:
               fdroid_text = fdroid_text[:497].rstrip() + "..."
@@ -255,7 +256,7 @@ jobs:
           body_path: release_notes.md
           files: dist/${{ steps.app_info.outputs.apk_name }}
 
-      # 10. Build F-Droid repo + static GitHub Pages folder
+      # 10. Build F-Droid repo + modern commercial light-theme GitHub Pages site
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -279,16 +280,13 @@ jobs:
         run: |
           mkdir -p site/repo "site/metadata/$PACKAGE_NAME/en-US/changelogs"
 
-          # Download all released APKs so "All Released Versions" & F-Droid repo stay complete
-          gh release list --repo "$REPO_FULL" --limit 30 --json tagName -q '.[].tagName' | while read -r TAG; do
+          gh release list --repo "$REPO_FULL" --limit 100 --json tagName -q '.[].tagName' | while read -r TAG; do
             gh release download "$TAG" --repo "$REPO_FULL" --pattern "*.apk" --dir site/repo --clobber || true
           done
 
-          # Ensure latest APK and its F-Droid changelog are present
           cp "dist/$LATEST_APK" "site/repo/$LATEST_APK"
           cp fdroid_notes.txt "site/metadata/$PACKAGE_NAME/en-US/changelogs/${VERSION_CODE}.txt"
 
-          # Decode keystore outside site/ so it is never published
           echo "$SIGNING_KEY" | base64 -d > keystore.jks
           chmod 600 keystore.jks
 
@@ -314,7 +312,6 @@ jobs:
           rm -f config.yml
           cd ..
 
-          # Generate repo-qr.png and clean index.html (no changelog clutter on HTML page)
           FDROID_URI="$FDROID_URI" REPO_URL="$REPO_URL" LATEST_TAG="$LATEST_TAG" LATEST_APK="$LATEST_APK" python3 - <<'EOF'
           import glob
           import os
@@ -335,53 +332,649 @@ jobs:
               return [int(n) for n in re.findall(r"\d+", name)]
 
           apks.sort(key=ver_key, reverse=True)
-          items_html = "\n".join(
-              f'        <li><a href="repo/{apk}">{apk}</a></li>' for apk in apks
-          )
 
-          html = f"""<!DOCTYPE html>
+          rows = []
+          for idx, apk in enumerate(apks):
+              badge = '<span class="pill-latest">Latest</span>' if idx == 0 else ""
+              rows.append(
+                  f'<li class="version-row">'
+                  f'<div class="version-info">'
+                  f'<span class="apk-icon" aria-hidden="true">'
+                  f'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>'
+                  f'</span>'
+                  f'<span class="version-name">{apk}</span>'
+                  f'{badge}'
+                  f'</div>'
+                  f'<a class="row-download" href="repo/{apk}">Download <span aria-hidden="true">↓</span></a>'
+                  f'</li>'
+              )
+          items_html = "\n".join(rows)
+
+          template = """<!DOCTYPE html>
           <html lang="en">
           <head>
             <meta charset="UTF-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-            <title>Cadence Mobile</title>
+            <title>Cadence Mobile — Android Release & F-Droid Repository</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com" />
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
             <style>
-              body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 16px; background: #0b1120; color: #f1f5f9; line-height: 1.6; }}
-              a {{ color: #38bdf8; }}
-              .card {{ background: #111a2e; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 24px; margin-bottom: 20px; }}
-              .btn {{ display: inline-block; padding: 10px 18px; border-radius: 8px; background: #38bdf8; color: #082f49; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }}
-              .btn-sec {{ background: rgba(255,255,255,0.1); color: #f1f5f9; margin-left: 8px; }}
-              .center {{ text-align: center; }}
-              img.qr {{ width: 180px; height: 180px; background: #fff; padding: 8px; border-radius: 8px; }}
-              code {{ background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 6px; word-break: break-all; }}
+              :root {
+                --bg: #f8fafc;
+                --surface: #ffffff;
+                --surface-soft: #f1f5f9;
+                --border: #e2e8f0;
+                --text: #0f172a;
+                --text-secondary: #475569;
+                --text-muted: #64748b;
+                --primary: #2563eb;
+                --primary-dark: #1d4ed8;
+                --accent: #0ea5e9;
+                --success: #16a34a;
+                --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+                --shadow-md: 0 10px 30px -10px rgba(15, 23, 42, 0.08), 0 4px 10px -4px rgba(15, 23, 42, 0.04);
+                --shadow-lg: 0 20px 45px -15px rgba(37, 99, 235, 0.16);
+              }
+
+              * { box-sizing: border-box; }
+
+              body {
+                margin: 0;
+                font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                line-height: 1.6;
+                -webkit-font-smoothing: antialiased;
+                overflow-x: hidden;
+                position: relative;
+              }
+
+              .bg-ambient {
+                position: fixed;
+                inset: 0;
+                z-index: -1;
+                overflow: hidden;
+                pointer-events: none;
+              }
+
+              .blob {
+                position: absolute;
+                border-radius: 9999px;
+                filter: blur(80px);
+                opacity: 0.45;
+                animation: floatGlow 14s ease-in-out infinite alternate;
+              }
+
+              .blob-1 {
+                width: 480px;
+                height: 480px;
+                top: -160px;
+                left: -120px;
+                background: radial-gradient(circle, rgba(37, 99, 235, 0.22), rgba(14, 165, 233, 0.08));
+              }
+
+              .blob-2 {
+                width: 420px;
+                height: 420px;
+                top: 180px;
+                right: -120px;
+                background: radial-gradient(circle, rgba(13, 148, 136, 0.18), rgba(56, 189, 248, 0.08));
+                animation-delay: -5s;
+              }
+
+              @keyframes floatGlow {
+                0% { transform: translate(0, 0) scale(1); }
+                100% { transform: translate(28px, 24px) scale(1.07); }
+              }
+
+              @keyframes fadeSlideUp {
+                from { opacity: 0; transform: translateY(18px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+
+              @keyframes pulseDot {
+                0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.45); }
+                50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(22, 163, 74, 0); }
+              }
+
+              .navbar {
+                position: sticky;
+                top: 0;
+                z-index: 20;
+                background: rgba(248, 250, 252, 0.8);
+                backdrop-filter: blur(14px);
+                -webkit-backdrop-filter: blur(14px);
+                border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+              }
+
+              .nav-inner {
+                max-width: 860px;
+                margin: 0 auto;
+                padding: 14px 20px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+              }
+
+              .brand {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-weight: 700;
+                font-size: 1.05rem;
+                color: var(--text);
+                text-decoration: none;
+                letter-spacing: -0.02em;
+              }
+
+              .brand-icon {
+                width: 34px;
+                height: 34px;
+                border-radius: 10px;
+                background: linear-gradient(135deg, var(--primary), var(--accent));
+                color: #ffffff;
+                display: grid;
+                place-items: center;
+                box-shadow: 0 6px 14px rgba(37, 99, 235, 0.25);
+              }
+
+              .nav-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                padding: 8px 14px;
+                border-radius: 9999px;
+                font-size: 0.875rem;
+                font-weight: 600;
+                color: var(--text-secondary);
+                background: var(--surface);
+                border: 1px solid var(--border);
+                text-decoration: none;
+                box-shadow: var(--shadow-sm);
+                transition: all 0.2s ease;
+              }
+
+              .nav-link:hover {
+                color: var(--text);
+                border-color: #cbd5e1;
+                transform: translateY(-1px);
+                box-shadow: var(--shadow-md);
+              }
+
+              .container {
+                max-width: 860px;
+                margin: 0 auto;
+                padding: 36px 20px 64px;
+              }
+
+              .card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                padding: 32px;
+                margin-bottom: 24px;
+                box-shadow: var(--shadow-md);
+                transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease;
+                animation: fadeSlideUp 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+              }
+
+              .card:nth-child(1) { animation-delay: 0.05s; }
+              .card:nth-child(2) { animation-delay: 0.14s; }
+              .card:nth-child(3) { animation-delay: 0.22s; }
+
+              .card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.11);
+              }
+
+              .hero-card {
+                background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+                position: relative;
+                overflow: hidden;
+              }
+
+              .status-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 13px;
+                border-radius: 9999px;
+                background: #f0fdf4;
+                border: 1px solid #bbf7d0;
+                color: #15803d;
+                font-size: 0.82rem;
+                font-weight: 600;
+                margin-bottom: 18px;
+              }
+
+              .pulse-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: var(--success);
+                animation: pulseDot 2s infinite;
+              }
+
+              h1 {
+                margin: 0 0 10px;
+                font-size: clamp(1.9rem, 4vw, 2.5rem);
+                font-weight: 800;
+                letter-spacing: -0.03em;
+                color: var(--text);
+                line-height: 1.15;
+              }
+
+              .subtitle {
+                margin: 0 0 26px;
+                max-width: 600px;
+                color: var(--text-secondary);
+                font-size: 1.03rem;
+              }
+
+              .cta-row {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 24px;
+              }
+
+              .btn {
+                position: relative;
+                overflow: hidden;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 13px 22px;
+                border-radius: 12px;
+                font-family: inherit;
+                font-size: 0.95rem;
+                font-weight: 600;
+                text-decoration: none;
+                border: none;
+                cursor: pointer;
+                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+              }
+
+              .btn-primary {
+                background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+                color: #ffffff;
+                box-shadow: 0 10px 22px -6px rgba(37, 99, 235, 0.45);
+              }
+
+              .btn-primary::after {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 60%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+                transform: skewX(-20deg);
+                transition: left 0.6s ease;
+              }
+
+              .btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: var(--shadow-lg);
+              }
+
+              .btn-primary:hover::after { left: 140%; }
+
+              .btn-secondary {
+                background: var(--surface-soft);
+                color: var(--text);
+                border: 1px solid var(--border);
+              }
+
+              .btn-secondary:hover {
+                background: #e2e8f0;
+                transform: translateY(-1px);
+              }
+
+              .btn-secondary.copied {
+                background: #dcfce7;
+                border-color: #86efac;
+                color: #15803d;
+              }
+
+              .feature-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                padding-top: 18px;
+                border-top: 1px solid var(--border);
+              }
+
+              .chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 0.82rem;
+                font-weight: 500;
+                color: var(--text-muted);
+                background: var(--surface-soft);
+                padding: 5px 11px;
+                border-radius: 8px;
+              }
+
+              .fdroid-grid {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 28px;
+                align-items: center;
+              }
+
+              .section-title {
+                margin: 0 0 8px;
+                font-size: 1.25rem;
+                font-weight: 700;
+                letter-spacing: -0.02em;
+              }
+
+              .section-desc {
+                margin: 0 0 18px;
+                color: var(--text-secondary);
+                font-size: 0.95rem;
+              }
+
+              .url-box {
+                margin-top: 16px;
+                display: inline-block;
+                max-width: 100%;
+                padding: 9px 13px;
+                border-radius: 10px;
+                background: var(--surface-soft);
+                border: 1px solid var(--border);
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                font-size: 0.82rem;
+                color: var(--text-secondary);
+                word-break: break-all;
+              }
+
+              .qr-frame {
+                background: #ffffff;
+                padding: 14px;
+                border-radius: 18px;
+                border: 1px solid var(--border);
+                box-shadow: var(--shadow-md);
+                text-align: center;
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+              }
+
+              .qr-frame:hover {
+                transform: translateY(-4px) scale(1.02);
+                box-shadow: 0 18px 34px -12px rgba(15, 23, 42, 0.14);
+              }
+
+              .qr-frame img {
+                display: block;
+                width: 164px;
+                height: 164px;
+                border-radius: 8px;
+              }
+
+              .qr-caption {
+                margin-top: 8px;
+                font-size: 0.76rem;
+                font-weight: 600;
+                color: var(--text-muted);
+              }
+
+              .versions-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 16px;
+              }
+
+              .count-badge {
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: var(--text-muted);
+                background: var(--surface-soft);
+                padding: 4px 10px;
+                border-radius: 9999px;
+              }
+
+              .version-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              }
+
+              .version-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 12px 16px;
+                border-radius: 12px;
+                border: 1px solid var(--border);
+                background: #ffffff;
+                transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+              }
+
+              .version-row:hover {
+                background: #f8fafc;
+                border-color: #cbd5e1;
+                transform: translateX(4px);
+              }
+
+              .version-info {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-width: 0;
+                flex-wrap: wrap;
+              }
+
+              .apk-icon {
+                width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                background: #eff6ff;
+                color: var(--primary);
+                display: grid;
+                place-items: center;
+                flex-shrink: 0;
+              }
+
+              .version-name {
+                font-weight: 600;
+                font-size: 0.93rem;
+                color: var(--text);
+                word-break: break-all;
+              }
+
+              .pill-latest {
+                font-size: 0.72rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                padding: 3px 8px;
+                border-radius: 9999px;
+                background: #dbeafe;
+                color: var(--primary-dark);
+              }
+
+              .row-download {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 7px 13px;
+                border-radius: 8px;
+                font-size: 0.84rem;
+                font-weight: 600;
+                color: var(--primary);
+                background: #eff6ff;
+                text-decoration: none;
+                flex-shrink: 0;
+                transition: background 0.2s ease, color 0.2s ease;
+              }
+
+              .row-download:hover {
+                background: var(--primary);
+                color: #ffffff;
+              }
+
+              .footer {
+                text-align: center;
+                margin-top: 28px;
+                font-size: 0.85rem;
+                color: var(--text-muted);
+              }
+
+              .footer a {
+                color: var(--primary);
+                text-decoration: none;
+                font-weight: 500;
+              }
+
+              .footer a:hover { text-decoration: underline; }
+
+              @media (max-width: 680px) {
+                .card { padding: 22px; }
+                .fdroid-grid { grid-template-columns: 1fr; }
+                .qr-frame { justify-self: center; }
+                .version-row { flex-direction: column; align-items: flex-start; }
+                .row-download { align-self: flex-start; }
+              }
+
+              @media (prefers-reduced-motion: reduce) {
+                *, *::before, *::after {
+                  animation: none !important;
+                  transition: none !important;
+                }
+              }
             </style>
           </head>
           <body>
-            <p style="text-align:right;"><a href="https://github.com/borisli713/Cadence-Mobile">View on GitHub</a></p>
-            <div class="card">
-              <h1>Cadence Mobile</h1>
-              <p>Latest Version: <strong>{latest_tag}</strong></p>
-              <a class="btn" href="repo/{latest_apk}">Download Latest APK ({latest_tag})</a>
+            <div class="bg-ambient" aria-hidden="true">
+              <div class="blob blob-1"></div>
+              <div class="blob blob-2"></div>
             </div>
-            <div class="card center">
-              <h3>F-Droid Repository</h3>
-              <p>Scan the QR code or add the repo in F-Droid for automatic updates</p>
-              <img class="qr" src="repo-qr.png" alt="F-Droid Repository QR Code" />
-              <p>
-                <a class="btn" href="{fdroid_uri}">Open in F-Droid</a>
-                <button class="btn btn-sec" onclick="navigator.clipboard.writeText('{repo_url}')">Copy Repo URL</button>
-              </p>
-              <p><code>{repo_url}</code></p>
-            </div>
-            <div class="card">
-              <h3>All Released Versions</h3>
-              <ul>
-          {items_html}
-              </ul>
-            </div>
+
+            <header class="navbar">
+              <div class="nav-inner">
+                <a class="brand" href="#">
+                  <span class="brand-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3" ry="3"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                  </span>
+                  <span>Cadence Mobile</span>
+                </a>
+                <a class="nav-link" href="https://github.com/borisli713/Cadence-Mobile" target="_blank" rel="noopener">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.69-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11.05 11.05 0 0 1 5.8 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+                  <span>View on GitHub</span>
+                </a>
+              </div>
+            </header>
+
+            <main class="container">
+              <section class="card hero-card">
+                <div class="status-pill">
+                  <span class="pulse-dot" aria-hidden="true"></span>
+                  <span>Latest Release • __LATEST_TAG__</span>
+                </div>
+                <h1>Cadence Mobile</h1>
+                <p class="subtitle">
+                  Native Android app for shift reporting, manager approvals, push notifications, and fairness-balanced overlap scheduling.
+                </p>
+                <div class="cta-row">
+                  <a class="btn btn-primary" href="repo/__LATEST_APK__">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Download Latest APK (__LATEST_TAG__)</span>
+                  </a>
+                </div>
+                <div class="feature-chips">
+                  <span class="chip">Kotlin &amp; Jetpack Compose</span>
+                  <span class="chip">Material Design 3</span>
+                  <span class="chip">Signed Release APK</span>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="fdroid-grid">
+                  <div>
+                    <h2 class="section-title">F-Droid Repository</h2>
+                    <p class="section-desc">
+                      Scan the QR code or add this repository in your F-Droid client to receive seamless automatic updates.
+                    </p>
+                    <div class="cta-row" style="margin-bottom: 0;">
+                      <a class="btn btn-primary" href="__FDROID_URI__">Open in F-Droid</a>
+                      <button id="copy-btn" class="btn btn-secondary" type="button" onclick="copyRepoUrl()">Copy Repo URL</button>
+                    </div>
+                    <div class="url-box" id="repo-url">__REPO_URL__</div>
+                  </div>
+                  <div class="qr-frame">
+                    <img src="repo-qr.png" alt="F-Droid Repository QR Code" />
+                    <div class="qr-caption">Scan with F-Droid</div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="versions-head">
+                  <h2 class="section-title" style="margin-bottom: 0;">All Released Versions</h2>
+                  <span class="count-badge">__VERSION_COUNT__ releases</span>
+                </div>
+                <ul class="version-list">
+                  __ITEMS_HTML__
+                </ul>
+              </section>
+
+              <footer class="footer">
+                Cadence Mobile • Distributed via <a href="https://github.com/borisli713/Cadence-Mobile" target="_blank" rel="noopener">GitHub</a> &amp; F-Droid
+              </footer>
+            </main>
+
+            <script>
+              function copyRepoUrl() {
+                var text = document.getElementById("repo-url").textContent;
+                var btn = document.getElementById("copy-btn");
+
+                function markCopied() {
+                  btn.textContent = "✓ Copied!";
+                  btn.classList.add("copied");
+                  setTimeout(function () {
+                    btn.textContent = "Copy Repo URL";
+                    btn.classList.remove("copied");
+                  }, 2000);
+                }
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(text).then(markCopied);
+                } else {
+                  var el = document.createElement("textarea");
+                  el.value = text;
+                  document.body.appendChild(el);
+                  el.select();
+                  document.execCommand("copy");
+                  document.body.removeChild(el);
+                  markCopied();
+                }
+              }
+            </script>
           </body>
           </html>
           """
+
+          html = (
+              template
+              .replace("__LATEST_TAG__", latest_tag)
+              .replace("__LATEST_APK__", latest_apk)
+              .replace("__FDROID_URI__", fdroid_uri)
+              .replace("__REPO_URL__", repo_url)
+              .replace("__VERSION_COUNT__", str(len(apks)))
+              .replace("__ITEMS_HTML__", items_html)
+          )
+
           with open("site/index.html", "w", encoding="utf-8") as f:
               f.write(html)
           EOF
