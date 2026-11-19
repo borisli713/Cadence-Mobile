@@ -38,4 +38,11 @@
     <string name="battery_dialog_open_settings">Open App Settings</string>
     <string name="battery_dialog_all_list">Battery List</string>
     <string name="battery_dialog_later">Later</string>
+    <string name="update_dialog_title">Update Available</string>
+    <string name="update_dialog_message">A newer version of Cadence is ready. Update to get the latest sync fixes and improvements.</string>
+    <string name="update_open_fdroid">Open F-Droid Repo</string>
+    <string name="update_open_github">Open GitHub Releases</string>
+    <string name="update_later">Later</string>
+    <string name="check_for_updates">Check for Updates</string>
+    <string name="checking_for_updates">Checking for Updates…</string>
 </resources>

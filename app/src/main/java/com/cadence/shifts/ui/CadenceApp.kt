@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Assignment
@@ -32,7 +34,9 @@ import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -53,6 +57,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,6 +78,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
@@ -100,17 +106,25 @@ import com.cadence.shifts.ui.screens.ShiftReportsScreen
 import com.cadence.shifts.ui.screens.TeamHoursScreen
 import com.cadence.shifts.ui.screens.TimeOffRequestsScreen
 import com.cadence.shifts.ui.theme.Amber600
+import com.cadence.shifts.ui.theme.Blue50
+import com.cadence.shifts.ui.theme.Blue600
+import com.cadence.shifts.ui.theme.Blue700
 import com.cadence.shifts.ui.theme.PureWhite
 import com.cadence.shifts.ui.theme.Rose600
+import com.cadence.shifts.ui.theme.Slate200
 import com.cadence.shifts.ui.theme.Slate50
 import com.cadence.shifts.ui.theme.Slate600
 import com.cadence.shifts.ui.theme.Slate900
 import com.cadence.shifts.ui.viewmodel.CadenceViewModel
 import com.cadence.shifts.ui.viewmodel.ProfileUiState
 import com.cadence.shifts.ui.viewmodel.WorkspaceUiData
+import com.cadence.shifts.util.AppUpdateChecker
+import com.cadence.shifts.util.AppVersionInfo
 import com.cadence.shifts.util.BatteryOptimizationHelper
 import com.cadence.shifts.util.GoogleAuthHelper
+import com.cadence.shifts.util.InstallSource
 import com.cadence.shifts.util.NotificationHelper
+import com.cadence.shifts.util.UpdateCheckResult
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -119,6 +133,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 
 enum class CadenceTab(val route: String, val label: String, val icon: ImageVector) {
     OVERVIEW("overview", "Overview", Icons.Rounded.Dashboard),
@@ -153,9 +168,22 @@ fun CadenceApp(
     val currentUser by auth.authStateFlow()
         .collectAsStateWithLifecycle(initialValue = auth.currentUser)
     var verificationTick by remember { mutableStateOf(0) }
+    val installedAppInfo = remember(context) { AppUpdateChecker.getInstalledAppInfo(context) }
+    var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var isCheckingUpdates by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         NotificationHelper.ensureChannel(context)
+        launch {
+            val result = AppUpdateChecker.checkForUpdate(context)
+            if (result != null) {
+                updateResult = result
+                if (result.updateAvailable) {
+                    showUpdateDialog = true
+                }
+            }
+        }
         if (auth.currentUser == null) {
             GoogleAuthHelper.attemptAutoSignIn(
                 context = context,
@@ -190,9 +218,45 @@ fun CadenceApp(
             WorkspaceRoot(
                 currentUserId = uid,
                 requestedTabRoute = requestedTabRoute,
-                onConsumedRequestedTab = onConsumedRequestedTab
+                onConsumedRequestedTab = onConsumedRequestedTab,
+                installedAppInfo = installedAppInfo,
+                updateResult = updateResult,
+                isCheckingUpdates = isCheckingUpdates,
+                isUpdateDialogShowing = showUpdateDialog,
+                onOpenUpdateDialog = { showUpdateDialog = true },
+                onCheckForUpdates = { onFeedback ->
+                    if (!isCheckingUpdates) {
+                        isCheckingUpdates = true
+                        scope.launch {
+                            val result = AppUpdateChecker.checkForUpdate(context)
+                            isCheckingUpdates = false
+                            if (result == null) {
+                                onFeedback("Could not reach update servers right now.")
+                            } else {
+                                updateResult = result
+                                if (result.updateAvailable) {
+                                    showUpdateDialog = true
+                                } else {
+                                    onFeedback("You're on the latest version (v${result.installed.versionName}).")
+                                }
+                            }
+                        }
+                    }
+                }
             )
         }
+    }
+
+    val activeUpdate = updateResult
+    if (showUpdateDialog && activeUpdate != null && activeUpdate.updateAvailable) {
+        AppUpdateDialog(
+            result = activeUpdate,
+            onOpenUrl = { url ->
+                showUpdateDialog = false
+                AppUpdateChecker.openUrl(context, url)
+            },
+            onDismiss = { showUpdateDialog = false }
+        )
     }
 }
 
@@ -201,7 +265,13 @@ fun CadenceApp(
 private fun WorkspaceRoot(
     currentUserId: String,
     requestedTabRoute: String?,
-    onConsumedRequestedTab: () -> Unit
+    onConsumedRequestedTab: () -> Unit,
+    installedAppInfo: AppVersionInfo,
+    updateResult: UpdateCheckResult?,
+    isCheckingUpdates: Boolean,
+    isUpdateDialogShowing: Boolean,
+    onOpenUpdateDialog: () -> Unit,
+    onCheckForUpdates: (onFeedback: (String) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -278,7 +348,7 @@ private fun WorkspaceRoot(
         }
     }
 
-    LaunchedEffect(profileState, hasOsNotifPermission, isUnrestrictedBattery) {
+    LaunchedEffect(profileState, hasOsNotifPermission, isUnrestrictedBattery, isUpdateDialogShowing) {
         val ready = profileState as? ProfileUiState.Ready ?: return@LaunchedEffect
         BackgroundSyncScheduler.ensureBackgroundSync(context, ready.profile.pushNotificationsEnabled)
 
@@ -292,7 +362,8 @@ private fun WorkspaceRoot(
             return@LaunchedEffect
         }
 
-        if (ready.profile.pushNotificationsEnabled &&
+        if (!isUpdateDialogShowing &&
+            ready.profile.pushNotificationsEnabled &&
             !isUnrestrictedBattery &&
             !batteryPromptedThisSession
         ) {
@@ -673,6 +744,16 @@ private fun WorkspaceRoot(
             if (showProfileDialog) {
                 ProfileSettingsDialog(
                     data = data,
+                    installedAppInfo = installedAppInfo,
+                    updateResult = updateResult,
+                    isCheckingUpdates = isCheckingUpdates,
+                    onOpenUpdateDialog = {
+                        showProfileDialog = false
+                        onOpenUpdateDialog()
+                    },
+                    onCheckForUpdates = {
+                        onCheckForUpdates { msg -> viewModel.showBanner(msg) }
+                    },
                     onDismiss = { showProfileDialog = false },
                     onSave = { name, dept, target, push ->
                         viewModel.updatePreferences(name, dept, target, push)
@@ -767,8 +848,130 @@ private fun BatteryOptimizationDialog(
 }
 
 @Composable
+private fun AppUpdateDialog(
+    result: UpdateCheckResult,
+    onOpenUrl: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val source = result.installed.installSource
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.SystemUpdate,
+                contentDescription = null,
+                tint = Blue600
+            )
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.update_dialog_title),
+                color = Slate900
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Blue50,
+                    border = BorderStroke(1.dp, Slate200)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "v${result.installed.versionName}  →  v${result.latest.versionName}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Blue700
+                        )
+                        Text(
+                            text = "Source: ${source.label}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Slate600
+                        )
+                    }
+                }
+
+                Text(
+                    text = stringResource(R.string.update_dialog_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Slate600
+                )
+
+                if (result.latest.releaseNotes.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Slate50,
+                        border = BorderStroke(1.dp, Slate200)
+                    ) {
+                        Text(
+                            text = result.latest.releaseNotes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate900,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp)
+                        )
+                    }
+                }
+
+                if (source == InstallSource.DIRECT_OR_UNKNOWN) {
+                    OutlinedButton(
+                        onClick = { onOpenUrl(AppUpdateChecker.FDROID_REPO_PAGE_URL) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("update_dialog_open_fdroid_secondary")
+                    ) {
+                        Icon(Icons.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(stringResource(R.string.update_open_fdroid))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val primaryLabel = when (source) {
+                InstallSource.FDROID -> stringResource(R.string.update_open_fdroid)
+                InstallSource.GITHUB -> stringResource(R.string.update_open_github)
+                InstallSource.DIRECT_OR_UNKNOWN -> stringResource(R.string.update_open_github)
+            }
+            val primaryUrl = when (source) {
+                InstallSource.FDROID -> AppUpdateChecker.FDROID_REPO_PAGE_URL
+                InstallSource.GITHUB -> result.latest.downloadPageUrl
+                InstallSource.DIRECT_OR_UNKNOWN -> result.latest.downloadPageUrl
+            }
+            Button(
+                onClick = { onOpenUrl(primaryUrl) },
+                modifier = Modifier.testTag("update_dialog_open_primary")
+            ) {
+                Icon(Icons.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(primaryLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("update_dialog_later")
+            ) {
+                Text(stringResource(R.string.update_later))
+            }
+        }
+    )
+}
+
+@Composable
 private fun ProfileSettingsDialog(
     data: WorkspaceUiData,
+    installedAppInfo: AppVersionInfo,
+    updateResult: UpdateCheckResult?,
+    isCheckingUpdates: Boolean,
+    onOpenUpdateDialog: () -> Unit,
+    onCheckForUpdates: () -> Unit,
     onDismiss: () -> Unit,
     onSave: (name: String, dept: String, weeklyTarget: Double, pushEnabled: Boolean) -> Unit,
     onSignOut: () -> Unit
@@ -819,7 +1022,54 @@ private fun ProfileSettingsDialog(
                     Switch(checked = pushEnabled, onCheckedChange = { pushEnabled = it })
                 }
 
-                Spacer(modifier = Modifier.size(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Slate50,
+                    border = BorderStroke(1.dp, Slate200)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "App Version v${installedAppInfo.versionName} (${installedAppInfo.versionCode}) • ${installedAppInfo.installSource.label}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600
+                        )
+                        if (updateResult?.updateAvailable == true) {
+                            Button(
+                                onClick = onOpenUpdateDialog,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("profile_update_now_button")
+                            ) {
+                                Icon(Icons.Rounded.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.size(6.dp))
+                                Text("Update Available (v${updateResult.latest.versionName})")
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = onCheckForUpdates,
+                                enabled = !isCheckingUpdates,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("check_updates_button")
+                            ) {
+                                if (isCheckingUpdates) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.checking_for_updates))
+                                } else {
+                                    Icon(Icons.Rounded.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Text(stringResource(R.string.check_for_updates))
+                                }
+                            }
+                        }
+                    }
+                }
 
                 OutlinedButton(
                     onClick = onSignOut,
