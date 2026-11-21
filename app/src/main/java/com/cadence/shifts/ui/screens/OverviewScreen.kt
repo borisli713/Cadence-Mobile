@@ -52,6 +52,7 @@ import com.cadence.shifts.ui.components.BadgeTone
 import com.cadence.shifts.ui.components.CadenceCard
 import com.cadence.shifts.ui.components.EmptyStatePanel
 import com.cadence.shifts.ui.components.KpiTile
+import com.cadence.shifts.ui.components.PlatformLinksCard
 import com.cadence.shifts.ui.components.StatusPill
 import com.cadence.shifts.ui.theme.Blue700
 import com.cadence.shifts.ui.theme.PureWhite
@@ -459,6 +460,10 @@ fun OverviewScreen(
                     }
                 }
             }
+        }
+
+        item {
+            PlatformLinksCard()
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }

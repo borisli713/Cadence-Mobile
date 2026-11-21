@@ -45,4 +45,15 @@
     <string name="update_later">Later</string>
     <string name="check_for_updates">Check for Updates</string>
     <string name="checking_for_updates">Checking for Updates…</string>
+    <string name="platforms_section_title">Also Available On</string>
+    <string name="platforms_section_subtitle">Access Cadence on Web or Windows PC, or view the Android project on GitHub.</string>
+    <string name="platform_web_title">Web App</string>
+    <string name="platform_web_subtitle">cadence.ngnltet.org</string>
+    <string name="platform_web_cd">Open Cadence Web App</string>
+    <string name="platform_windows_title">Windows Version</string>
+    <string name="platform_windows_subtitle">borisli713.github.io/Cadence-PC</string>
+    <string name="platform_windows_cd">Open Cadence Windows Version</string>
+    <string name="platform_github_title">GitHub Project</string>
+    <string name="platform_github_subtitle">github.com/borisli713/Cadence-Mobile</string>
+    <string name="platform_github_cd">Open Cadence Mobile on GitHub</string>
 </resources>

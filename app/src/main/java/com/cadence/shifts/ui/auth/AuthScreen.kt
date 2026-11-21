@@ -81,6 +81,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import com.cadence.shifts.R
+import com.cadence.shifts.ui.components.PlatformLinksCard
 import com.cadence.shifts.ui.theme.Amber50
 import com.cadence.shifts.ui.theme.Amber700
 import com.cadence.shifts.ui.theme.Blue100
@@ -672,6 +673,8 @@ fun AuthScreen(
                         }
                     }
                 }
+
+                PlatformLinksCard(compact = true)
             }
         }
     }

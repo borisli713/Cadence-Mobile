@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.BatteryAlert
@@ -96,6 +98,7 @@ import com.cadence.shifts.data.repository.CadenceRepository
 import com.cadence.shifts.notifications.BackgroundSyncScheduler
 import com.cadence.shifts.ui.auth.AuthScreen
 import com.cadence.shifts.ui.components.CadenceCard
+import com.cadence.shifts.ui.components.PlatformLinksCard
 import com.cadence.shifts.ui.screens.ManagerApprovalsScreen
 import com.cadence.shifts.ui.screens.MyScheduleScreen
 import com.cadence.shifts.ui.screens.NotificationsScreen
@@ -985,7 +988,10 @@ private fun ProfileSettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.profile_settings)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "${data.profile.email} • ${if (data.isManager) "Manager" else "Staff"}",
                     style = MaterialTheme.typography.bodySmall,
@@ -1070,6 +1076,8 @@ private fun ProfileSettingsDialog(
                         }
                     }
                 }
+
+                PlatformLinksCard(compact = true)
 
                 OutlinedButton(
                     onClick = onSignOut,
