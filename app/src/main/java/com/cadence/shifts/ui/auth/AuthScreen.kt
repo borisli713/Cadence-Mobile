@@ -81,6 +81,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import com.cadence.shifts.R
+import com.cadence.shifts.ui.components.LanguagePickerDialog
+import com.cadence.shifts.ui.components.LanguageSelectorPill
 import com.cadence.shifts.ui.components.PlatformLinksCard
 import com.cadence.shifts.ui.theme.Amber50
 import com.cadence.shifts.ui.theme.Amber700
@@ -100,6 +102,7 @@ import com.cadence.shifts.ui.theme.Slate500
 import com.cadence.shifts.ui.theme.Slate600
 import com.cadence.shifts.ui.theme.Slate900
 import com.cadence.shifts.util.GoogleAuthHelper
+import com.cadence.shifts.util.LocaleHelper
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.launch
 
@@ -130,6 +133,7 @@ fun AuthScreen(
     var isGoogleBusy by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     val isBusy = isEmailBusy || isGoogleBusy
 
@@ -137,43 +141,44 @@ fun AuthScreen(
         focusManager.clearFocus()
         errorMessage = null
         infoMessage = null
+        val loc = LocaleHelper.localizedContext(context)
 
         if (authMode == AuthMode.SIGN_UP) {
             if (password != confirmPassword) {
-                errorMessage = "Passwords do not match."
+                errorMessage = loc.getString(R.string.err_passwords_mismatch)
                 return
             }
             isEmailBusy = true
             scope.launch {
-                val res = GoogleAuthHelper.signUpWithEmail(fullName, email, password)
+                val res = GoogleAuthHelper.signUpWithEmail(fullName, email, password, context)
                 isEmailBusy = false
                 res.onSuccess { (user, sentVerification) ->
                     if (user.isEmailVerified) {
                         onAuthSuccess()
                     } else {
                         infoMessage = if (sentVerification) {
-                            "Verification link sent to ${user.email}. Please verify your email, then tap I've Verified My Email."
+                            loc.getString(R.string.info_verification_sent, user.email.orEmpty())
                         } else {
-                            "Account created. Please send and confirm your verification email before continuing."
+                            loc.getString(R.string.info_account_created_verify)
                         }
                     }
                 }.onFailure { err ->
-                    errorMessage = err.message ?: "Unable to create account."
+                    errorMessage = err.message ?: loc.getString(R.string.err_unable_create_account)
                 }
             }
         } else {
             isEmailBusy = true
             scope.launch {
-                val res = GoogleAuthHelper.signInWithEmail(email, password)
+                val res = GoogleAuthHelper.signInWithEmail(email, password, context)
                 isEmailBusy = false
                 res.onSuccess { user ->
                     if (user.isEmailVerified) {
                         onAuthSuccess()
                     } else {
-                        infoMessage = "Please verify ${user.email} before opening the workspace."
+                        infoMessage = loc.getString(R.string.info_verify_before_workspace, user.email.orEmpty())
                     }
                 }.onFailure { err ->
-                    errorMessage = err.message ?: "Unable to sign in."
+                    errorMessage = err.message ?: loc.getString(R.string.err_unable_sign_in)
                 }
             }
         }
@@ -215,37 +220,46 @@ fun AuthScreen(
                     .widthIn(max = 480.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Brand Header
+                // Brand Header + Native Language Switcher
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(13.dp))
-                            .background(Slate900),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Schedule,
-                            contentDescription = stringResource(R.string.app_name),
-                            tint = Blue50,
-                            modifier = Modifier.size(25.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(Slate900),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Schedule,
+                                contentDescription = stringResource(R.string.app_name),
+                                tint = Blue50,
+                                modifier = Modifier.size(25.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = stringResource(R.string.app_name),
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Slate900
+                            )
+                            Text(
+                                text = stringResource(R.string.tagline),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Slate600
+                            )
+                        }
                     }
-                    Column {
-                        Text(
-                            text = stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Slate900
-                        )
-                        Text(
-                            text = stringResource(R.string.tagline),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Slate600
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    LanguageSelectorPill(onClick = { showLanguageDialog = true })
                 }
 
                 if (unverifiedUser != null && !unverifiedUser.isEmailVerified) {
@@ -258,17 +272,18 @@ fun AuthScreen(
                             errorMessage = null
                             infoMessage = null
                             isEmailBusy = true
+                            val loc = LocaleHelper.localizedContext(context)
                             scope.launch {
-                                val res = GoogleAuthHelper.reloadAndCheckVerified()
+                                val res = GoogleAuthHelper.reloadAndCheckVerified(context)
                                 isEmailBusy = false
                                 res.onSuccess { verified ->
                                     if (verified) {
                                         onVerificationConfirmed()
                                     } else {
-                                        errorMessage = "Email is not verified yet. Open the link in your inbox and try again."
+                                        errorMessage = loc.getString(R.string.err_email_not_verified_yet)
                                     }
                                 }.onFailure { err ->
-                                    errorMessage = err.message ?: "Could not verify email status."
+                                    errorMessage = err.message ?: loc.getString(R.string.err_could_not_verify_status)
                                 }
                             }
                         },
@@ -276,13 +291,17 @@ fun AuthScreen(
                             errorMessage = null
                             infoMessage = null
                             isEmailBusy = true
+                            val loc = LocaleHelper.localizedContext(context)
                             scope.launch {
-                                val res = GoogleAuthHelper.resendVerificationEmail()
+                                val res = GoogleAuthHelper.resendVerificationEmail(context)
                                 isEmailBusy = false
                                 res.onSuccess {
-                                    infoMessage = "A fresh verification email has been sent to ${unverifiedUser.email}."
+                                    infoMessage = loc.getString(
+                                        R.string.info_fresh_verification_sent,
+                                        unverifiedUser.email.orEmpty()
+                                    )
                                 }.onFailure { err ->
-                                    errorMessage = err.message ?: "Failed to resend verification email."
+                                    errorMessage = err.message ?: loc.getString(R.string.err_failed_resend_verification)
                                 }
                             }
                         },
@@ -365,9 +384,9 @@ fun AuthScreen(
                                     )
                                     Text(
                                         text = if (authMode == AuthMode.SIGN_IN) {
-                                            "Verified Workspace Access"
+                                            stringResource(R.string.badge_verified_access)
                                         } else {
-                                            "New Staff Onboarding"
+                                            stringResource(R.string.badge_staff_onboarding)
                                         },
                                         style = MaterialTheme.typography.labelMedium,
                                         color = if (authMode == AuthMode.SIGN_IN) Emerald700 else Blue700
@@ -409,7 +428,7 @@ fun AuthScreen(
                                 OutlinedTextField(
                                     value = fullName,
                                     onValueChange = { fullName = it },
-                                    label = { Text("Full Name") },
+                                    label = { Text(stringResource(R.string.full_name_label)) },
                                     leadingIcon = {
                                         Icon(Icons.Rounded.Person, contentDescription = null)
                                     },
@@ -429,7 +448,7 @@ fun AuthScreen(
                             OutlinedTextField(
                                 value = email,
                                 onValueChange = { email = it },
-                                label = { Text("Email Address") },
+                                label = { Text(stringResource(R.string.email_address_label)) },
                                 leadingIcon = {
                                     Icon(Icons.Rounded.Email, contentDescription = null)
                                 },
@@ -448,7 +467,7 @@ fun AuthScreen(
                             OutlinedTextField(
                                 value = password,
                                 onValueChange = { password = it },
-                                label = { Text("Password") },
+                                label = { Text(stringResource(R.string.password_label)) },
                                 leadingIcon = {
                                     Icon(Icons.Rounded.Lock, contentDescription = null)
                                 },
@@ -460,7 +479,11 @@ fun AuthScreen(
                                             } else {
                                                 Icons.Rounded.Visibility
                                             },
-                                            contentDescription = if (showPassword) "Hide password" else "Show password"
+                                            contentDescription = if (showPassword) {
+                                                stringResource(R.string.hide_password)
+                                            } else {
+                                                stringResource(R.string.show_password)
+                                            }
                                         )
                                     }
                                 },
@@ -470,7 +493,7 @@ fun AuthScreen(
                                     PasswordVisualTransformation()
                                 },
                                 supportingText = if (authMode == AuthMode.SIGN_UP) {
-                                    { Text("Minimum 6 characters") }
+                                    { Text(stringResource(R.string.min_6_chars)) }
                                 } else null,
                                 singleLine = true,
                                 enabled = !isBusy,
@@ -493,7 +516,7 @@ fun AuthScreen(
                                 OutlinedTextField(
                                     value = confirmPassword,
                                     onValueChange = { confirmPassword = it },
-                                    label = { Text("Confirm Password") },
+                                    label = { Text(stringResource(R.string.confirm_password_label)) },
                                     leadingIcon = {
                                         Icon(Icons.Rounded.Lock, contentDescription = null)
                                     },
@@ -528,20 +551,21 @@ fun AuthScreen(
                                             errorMessage = null
                                             infoMessage = null
                                             isEmailBusy = true
+                                            val loc = LocaleHelper.localizedContext(context)
                                             scope.launch {
-                                                val res = GoogleAuthHelper.sendPasswordReset(email)
+                                                val res = GoogleAuthHelper.sendPasswordReset(email, context)
                                                 isEmailBusy = false
                                                 res.onSuccess {
-                                                    infoMessage = "Password reset link sent to ${email.trim()}."
+                                                    infoMessage = loc.getString(R.string.info_reset_link_sent, email.trim())
                                                 }.onFailure { err ->
-                                                    errorMessage = err.message ?: "Unable to send reset link."
+                                                    errorMessage = err.message ?: loc.getString(R.string.err_unable_send_reset)
                                                 }
                                             }
                                         },
                                         enabled = !isBusy,
                                         modifier = Modifier.testTag("forgot_password_button")
                                     ) {
-                                        Text("Forgot password?", color = Blue700)
+                                        Text(stringResource(R.string.forgot_password), color = Blue700)
                                     }
                                 }
                             }
@@ -574,7 +598,11 @@ fun AuthScreen(
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = if (authMode == AuthMode.SIGN_IN) "Signing in…" else "Creating account…",
+                                        text = if (authMode == AuthMode.SIGN_IN) {
+                                            stringResource(R.string.signing_in)
+                                        } else {
+                                            stringResource(R.string.creating_account)
+                                        },
                                         style = MaterialTheme.typography.labelLarge
                                     )
                                 } else {
@@ -597,7 +625,7 @@ fun AuthScreen(
                             ) {
                                 HorizontalDivider(modifier = Modifier.weight(1f), color = Slate200)
                                 Text(
-                                    text = "or continue with",
+                                    text = stringResource(R.string.or_continue_with),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Slate500
                                 )
@@ -648,7 +676,7 @@ fun AuthScreen(
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
-                                    Text("Connecting Google…", style = MaterialTheme.typography.labelLarge)
+                                    Text(stringResource(R.string.connecting_google), style = MaterialTheme.typography.labelLarge)
                                 } else {
                                     Icon(
                                         imageVector = Icons.Rounded.VerifiedUser,
@@ -677,6 +705,16 @@ fun AuthScreen(
                 PlatformLinksCard(compact = true)
             }
         }
+    }
+
+    if (showLanguageDialog) {
+        LanguagePickerDialog(
+            onDismiss = { showLanguageDialog = false },
+            onLanguageSelected = { option ->
+                showLanguageDialog = false
+                LocaleHelper.setAppLanguage(context, option.tag)
+            }
+        )
     }
 }
 
@@ -716,7 +754,7 @@ private fun EmailVerificationCard(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "Email Verification Required",
+                        text = stringResource(R.string.email_verification_required),
                         style = MaterialTheme.typography.labelMedium,
                         color = Amber700
                     )
@@ -730,7 +768,7 @@ private fun EmailVerificationCard(
             )
 
             Text(
-                text = "We sent a verification link to $email. Confirm your email address to unlock your Cadence workspace.",
+                text = stringResource(R.string.verify_email_sent_body, email),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Slate600
             )
@@ -782,7 +820,7 @@ private fun EmailVerificationCard(
                     .fillMaxWidth()
                     .testTag("verify_sign_out_button")
             ) {
-                Text("Use another account", color = Slate600)
+                Text(stringResource(R.string.use_another_account), color = Slate600)
             }
         }
     }

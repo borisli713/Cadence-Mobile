@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.MutableContextWrapper
 import android.util.Log
 import android.util.Patterns
+import androidx.annotation.StringRes
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
@@ -40,6 +41,20 @@ import kotlinx.coroutines.withContext
 
 object GoogleAuthHelper {
     private const val TAG = "Auth"
+
+    private fun str(
+        context: Context?,
+        @StringRes resId: Int,
+        fallback: String,
+        vararg args: Any
+    ): String {
+        return if (context != null) {
+            val loc = LocaleHelper.localizedContext(context)
+            if (args.isEmpty()) loc.getString(resId) else loc.getString(resId, *args)
+        } else {
+            fallback
+        }
+    }
 
     private tailrec fun Context.findActivity(): Activity? = when (this) {
         is Activity -> this
@@ -126,21 +141,22 @@ object GoogleAuthHelper {
         scope: CoroutineScope,
         onAuthCancelled: (String?) -> Unit = {}
     ) {
+        val loc = LocaleHelper.localizedContext(context)
         val clientId = try {
             context.getString(R.string.default_web_client_id).trim()
         } catch (_: Exception) {
-            onAuthError("Google Sign-In configuration missing: default_web_client_id not found.")
+            onAuthError(loc.getString(R.string.auth_err_config_missing))
             return
         }
 
         if (clientId.isBlank()) {
-            onAuthError("Google Sign-In is not configured (empty Web Client ID).")
+            onAuthError(loc.getString(R.string.auth_err_empty_client_id))
             return
         }
 
         val activity = context.findActivity()
         if (activity == null) {
-            onAuthError("Unable to open Google account selector without an active screen.")
+            onAuthError(loc.getString(R.string.auth_err_no_activity))
             return
         }
 
@@ -182,80 +198,104 @@ object GoogleAuthHelper {
                     if (isUserDismissal) {
                         onAuthCancelled(null)
                     } else {
+                        val baseMsg = loc.getString(
+                            R.string.auth_err_google_cancelled,
+                            detail.ifBlank { loc.getString(R.string.cancel) }
+                        )
                         val extraHint = if (detail.contains("16") || detail.contains("reauth", ignoreCase = true)) {
-                            " This usually means the APK's signing SHA-1 certificate is not registered in Firebase Console (especially for release builds), or Google Play Services needs account re-auth / cache clear."
+                            " " + loc.getString(R.string.auth_err_sha1_hint)
                         } else {
                             ""
                         }
-                        onAuthError("Google Sign-In failed (${detail.ifBlank { "cancelled by Play Services" }}).$extraHint")
+                        onAuthError(baseMsg + extraHint)
                     }
                 }
             } catch (e: NoCredentialException) {
                 Log.w(TAG, "No Google credentials found on device", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError("No Google account is signed in on this device, or Sign in with Google prompts are disabled in device settings.")
+                    onAuthError(loc.getString(R.string.auth_err_no_google_credentials))
                 }
             } catch (e: GetCredentialProviderConfigurationException) {
                 Log.e(TAG, "Credential provider configuration error", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError("Google Play Services credential provider is unavailable. Update Google Play Services or sign in with Email & Password.")
+                    onAuthError(loc.getString(R.string.auth_err_provider_unavailable))
                 }
             } catch (e: GetCredentialUnsupportedException) {
                 Log.e(TAG, "Credential manager unsupported", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError("Google Sign-In is not supported on this device. Please use Email & Password.")
+                    onAuthError(loc.getString(R.string.auth_err_unsupported))
                 }
             } catch (e: GetCredentialInterruptedException) {
                 Log.w(TAG, "Google Sign-In interrupted", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError("Google Sign-In was interrupted. Please try again.")
+                    onAuthError(loc.getString(R.string.auth_err_interrupted))
                 }
             } catch (e: GetCredentialCustomException) {
                 Log.e(TAG, "Custom Google Sign-In error: type=${e.type} msg=${e.errorMessage}", e)
                 withContext(Dispatchers.Main) {
                     onAuthError(
-                        "Google Sign-In failed (${e.errorMessage ?: e.type}). " +
-                            "If this is a release build, confirm its SHA-1 certificate is registered in Firebase."
+                        loc.getString(
+                            R.string.auth_err_google_failed_sha1,
+                            e.errorMessage?.toString() ?: e.type
+                        )
                     )
                 }
             } catch (e: GetCredentialException) {
                 Log.e(TAG, "GetCredentialException: type=${e.type} msg=${e.errorMessage}", e)
                 withContext(Dispatchers.Main) {
                     onAuthError(
-                        "Google Sign-In failed (${e.errorMessage ?: e.type}). " +
-                            "Confirm Google Sign-In is enabled in Firebase Authentication and this APK's SHA-1 is registered."
+                        loc.getString(
+                            R.string.auth_err_google_failed_sha1,
+                            e.errorMessage?.toString() ?: e.type
+                        )
                     )
                 }
             } catch (e: GoogleIdTokenParsingException) {
                 Log.e(TAG, "Invalid Google ID token", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError("Received an invalid Google ID token. Please try again.")
+                    onAuthError(loc.getString(R.string.auth_err_invalid_token))
                 }
             } catch (e: FirebaseAuthException) {
                 Log.e(TAG, "Firebase Google credential sign-in failed: code=${e.errorCode}", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError(formatFirebaseAuthError(e, "Firebase rejected Google Sign-In (${e.errorCode})."))
+                    onAuthError(
+                        formatFirebaseAuthError(
+                            loc,
+                            e,
+                            loc.getString(R.string.auth_err_firebase_rejected, e.errorCode)
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Google Sign-In failed unexpectedly", e)
                 withContext(Dispatchers.Main) {
-                    onAuthError(e.localizedMessage ?: "Google Sign-In failed.")
+                    onAuthError(e.localizedMessage ?: loc.getString(R.string.auth_err_google_generic))
                 }
             }
         }
     }
 
-    suspend fun signInWithEmail(email: String, password: String): Result<FirebaseUser> {
+    suspend fun signInWithEmail(
+        email: String,
+        password: String,
+        context: Context? = null
+    ): Result<FirebaseUser> {
         val trimmedEmail = email.trim()
         if (!Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-            return Result.failure(IllegalArgumentException("Please enter a valid email address."))
+            return Result.failure(
+                IllegalArgumentException(str(context, R.string.auth_err_invalid_email, "Please enter a valid email address."))
+            )
         }
         if (password.isEmpty()) {
-            return Result.failure(IllegalArgumentException("Please enter your password."))
+            return Result.failure(
+                IllegalArgumentException(str(context, R.string.auth_err_enter_password, "Please enter your password."))
+            )
         }
         return try {
             val result = Firebase.auth.signInWithEmailAndPassword(trimmedEmail, password).await()
-            val user = result.user ?: return Result.failure(IllegalStateException("Sign-in succeeded without a user session."))
+            val user = result.user ?: return Result.failure(
+                IllegalStateException(str(context, R.string.auth_err_no_user_session, "Sign-in succeeded without a user session."))
+            )
             if (!user.isEmailVerified) {
                 runCatching { user.reload().await() }
             }
@@ -264,29 +304,46 @@ object GoogleAuthHelper {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Email sign-in failed", e)
-            Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to sign in.")))
+            Result.failure(
+                IllegalStateException(
+                    formatFirebaseAuthError(
+                        context,
+                        e,
+                        str(context, R.string.err_unable_sign_in, "Unable to sign in.")
+                    )
+                )
+            )
         }
     }
 
     suspend fun signUpWithEmail(
         displayName: String,
         email: String,
-        password: String
+        password: String,
+        context: Context? = null
     ): Result<Pair<FirebaseUser, Boolean>> {
         val cleanName = displayName.trim()
         val trimmedEmail = email.trim()
         if (cleanName.length < 2) {
-            return Result.failure(IllegalArgumentException("Please enter your full name."))
+            return Result.failure(
+                IllegalArgumentException(str(context, R.string.auth_err_enter_full_name, "Please enter your full name."))
+            )
         }
         if (!Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-            return Result.failure(IllegalArgumentException("Please enter a valid email address."))
+            return Result.failure(
+                IllegalArgumentException(str(context, R.string.auth_err_invalid_email, "Please enter a valid email address."))
+            )
         }
         if (password.length < 6) {
-            return Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
+            return Result.failure(
+                IllegalArgumentException(str(context, R.string.auth_err_password_min_6, "Password must be at least 6 characters."))
+            )
         }
         return try {
             val result = Firebase.auth.createUserWithEmailAndPassword(trimmedEmail, password).await()
-            val user = result.user ?: return Result.failure(IllegalStateException("Account creation failed."))
+            val user = result.user ?: return Result.failure(
+                IllegalStateException(str(context, R.string.err_unable_create_account, "Unable to create account."))
+            )
             runCatching {
                 val updates = UserProfileChangeRequest.Builder()
                     .setDisplayName(cleanName)
@@ -301,14 +358,26 @@ object GoogleAuthHelper {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Email sign-up failed", e)
-            Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to create account.")))
+            Result.failure(
+                IllegalStateException(
+                    formatFirebaseAuthError(
+                        context,
+                        e,
+                        str(context, R.string.err_unable_create_account, "Unable to create account.")
+                    )
+                )
+            )
         }
     }
 
-    suspend fun sendPasswordReset(email: String): Result<Unit> {
+    suspend fun sendPasswordReset(email: String, context: Context? = null): Result<Unit> {
         val trimmedEmail = email.trim()
         if (!Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-            return Result.failure(IllegalArgumentException("Enter your account email address first to reset your password."))
+            return Result.failure(
+                IllegalArgumentException(
+                    str(context, R.string.auth_err_enter_reset_email, "Enter your account email address first to reset your password.")
+                )
+            )
         }
         return try {
             Firebase.auth.sendPasswordResetEmail(trimmedEmail).await()
@@ -317,26 +386,46 @@ object GoogleAuthHelper {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Password reset failed", e)
-            Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to send password reset email.")))
+            Result.failure(
+                IllegalStateException(
+                    formatFirebaseAuthError(
+                        context,
+                        e,
+                        str(context, R.string.err_unable_send_reset, "Unable to send reset link.")
+                    )
+                )
+            )
         }
     }
 
-    suspend fun resendVerificationEmail(): Result<Unit> {
+    suspend fun resendVerificationEmail(context: Context? = null): Result<Unit> {
         val user = Firebase.auth.currentUser
-            ?: return Result.failure(IllegalStateException("No signed-in user found."))
+            ?: return Result.failure(
+                IllegalStateException(str(context, R.string.auth_err_no_signed_in_user, "No signed-in user found."))
+            )
         return try {
             user.sendEmailVerification().await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Failed to resend verification email.")))
+            Result.failure(
+                IllegalStateException(
+                    formatFirebaseAuthError(
+                        context,
+                        e,
+                        str(context, R.string.err_failed_resend_verification, "Failed to resend verification email.")
+                    )
+                )
+            )
         }
     }
 
-    suspend fun reloadAndCheckVerified(): Result<Boolean> {
+    suspend fun reloadAndCheckVerified(context: Context? = null): Result<Boolean> {
         val user = Firebase.auth.currentUser
-            ?: return Result.failure(IllegalStateException("Session expired. Please sign in again."))
+            ?: return Result.failure(
+                IllegalStateException(str(context, R.string.auth_err_session_expired, "Session expired. Please sign in again."))
+            )
         return try {
             user.reload().await()
             user.getIdToken(true).await()
@@ -344,7 +433,15 @@ object GoogleAuthHelper {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(IllegalStateException(formatFirebaseAuthError(e, "Unable to refresh verification status.")))
+            Result.failure(
+                IllegalStateException(
+                    formatFirebaseAuthError(
+                        context,
+                        e,
+                        str(context, R.string.auth_err_refresh_verification, "Unable to refresh verification status.")
+                    )
+                )
+            )
         }
     }
 
@@ -369,20 +466,27 @@ object GoogleAuthHelper {
         }
     }
 
-    private fun formatFirebaseAuthError(e: Exception, fallback: String): String {
+    private fun formatFirebaseAuthError(context: Context?, e: Exception, fallback: String): String {
         val code = (e as? FirebaseAuthException)?.errorCode
         return when (code) {
-            "ERROR_INVALID_EMAIL" -> "That email address format is invalid."
-            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL" -> "Incorrect email/password or invalid Google credential. Please try again."
-            "ERROR_USER_NOT_FOUND" -> "No account exists for that email address."
-            "ERROR_EMAIL_ALREADY_IN_USE" -> "An account with this email already exists. Try signing in instead."
+            "ERROR_INVALID_EMAIL" -> str(context, R.string.auth_fb_invalid_email, "That email address format is invalid.")
+            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL" ->
+                str(context, R.string.auth_fb_invalid_credential, "Incorrect email/password or invalid Google credential. Please try again.")
+            "ERROR_USER_NOT_FOUND" -> str(context, R.string.auth_fb_user_not_found, "No account exists for that email address.")
+            "ERROR_EMAIL_ALREADY_IN_USE" ->
+                str(context, R.string.auth_fb_email_in_use, "An account with this email already exists. Try signing in instead.")
             "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ->
-                "An account with this email already exists using Email & Password. Sign in with your password first."
-            "ERROR_WEAK_PASSWORD" -> "Please choose a stronger password (at least 6 characters)."
-            "ERROR_TOO_MANY_REQUESTS" -> "Too many attempts. Please wait a moment and try again."
-            "ERROR_OPERATION_NOT_ALLOWED" -> "This sign-in provider is not enabled in Firebase Authentication."
-            "ERROR_USER_DISABLED" -> "This account has been disabled by an administrator."
-            "ERROR_NETWORK_REQUEST_FAILED" -> "Network error while contacting Firebase Authentication. Check your connection."
+                str(context, R.string.auth_fb_different_credential, "An account with this email already exists using Email & Password. Sign in with your password first.")
+            "ERROR_WEAK_PASSWORD" ->
+                str(context, R.string.auth_fb_weak_password, "Please choose a stronger password (at least 6 characters).")
+            "ERROR_TOO_MANY_REQUESTS" ->
+                str(context, R.string.auth_fb_too_many_requests, "Too many attempts. Please wait a moment and try again.")
+            "ERROR_OPERATION_NOT_ALLOWED" ->
+                str(context, R.string.auth_fb_operation_not_allowed, "This sign-in provider is not enabled in Firebase Authentication.")
+            "ERROR_USER_DISABLED" ->
+                str(context, R.string.auth_fb_user_disabled, "This account has been disabled by an administrator.")
+            "ERROR_NETWORK_REQUEST_FAILED" ->
+                str(context, R.string.auth_fb_network, "Network error while contacting Firebase Authentication. Check your connection.")
             else -> e.localizedMessage ?: fallback
         }
     }

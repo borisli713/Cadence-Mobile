@@ -92,6 +92,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.annotation.StringRes
 import com.cadence.shifts.R
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.repository.CadenceRepository
@@ -99,6 +100,8 @@ import com.cadence.shifts.notifications.BackgroundSyncScheduler
 import com.cadence.shifts.notifications.RealtimeAlertMonitor
 import com.cadence.shifts.ui.auth.AuthScreen
 import com.cadence.shifts.ui.components.CadenceCard
+import com.cadence.shifts.ui.components.LanguagePickerDialog
+import com.cadence.shifts.ui.components.LanguageSettingsRow
 import com.cadence.shifts.ui.components.PlatformLinksCard
 import com.cadence.shifts.ui.screens.ManagerApprovalsScreen
 import com.cadence.shifts.ui.screens.MyScheduleScreen
@@ -127,6 +130,7 @@ import com.cadence.shifts.util.AppVersionInfo
 import com.cadence.shifts.util.BatteryOptimizationHelper
 import com.cadence.shifts.util.GoogleAuthHelper
 import com.cadence.shifts.util.InstallSource
+import com.cadence.shifts.util.LocaleHelper
 import com.cadence.shifts.util.NotificationHelper
 import com.cadence.shifts.util.UpdateCheckResult
 import com.google.firebase.Firebase
@@ -139,16 +143,20 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 
-enum class CadenceTab(val route: String, val label: String, val icon: ImageVector) {
-    OVERVIEW("overview", "Overview", Icons.Rounded.Dashboard),
-    MY_SCHEDULE("my_schedule", "My Schedule", Icons.Rounded.Today),
-    SCHEDULE("schedule", "Schedule", Icons.Rounded.CalendarMonth),
-    REPORTS("reports", "Reports", Icons.Rounded.Assignment),
-    APPROVALS("approvals", "Approvals", Icons.Rounded.FactCheck),
-    HISTORY("history", "Shift History", Icons.Rounded.History),
-    TEAM("team", "Team", Icons.Rounded.Groups),
-    TIME_OFF("time_off", "Time Off", Icons.Rounded.EventBusy),
-    NOTIFICATIONS("notifications", "Alerts", Icons.Rounded.Notifications)
+enum class CadenceTab(
+    val route: String,
+    @StringRes val labelRes: Int,
+    val icon: ImageVector
+) {
+    OVERVIEW("overview", R.string.nav_overview, Icons.Rounded.Dashboard),
+    MY_SCHEDULE("my_schedule", R.string.nav_my_schedule, Icons.Rounded.Today),
+    SCHEDULE("schedule", R.string.nav_schedule, Icons.Rounded.CalendarMonth),
+    REPORTS("reports", R.string.nav_reports, Icons.Rounded.Assignment),
+    APPROVALS("approvals", R.string.nav_approvals, Icons.Rounded.FactCheck),
+    HISTORY("history", R.string.nav_history, Icons.Rounded.History),
+    TEAM("team", R.string.nav_team, Icons.Rounded.Groups),
+    TIME_OFF("time_off", R.string.nav_timeoff, Icons.Rounded.EventBusy),
+    NOTIFICATIONS("notifications", R.string.nav_alerts, Icons.Rounded.Notifications)
 }
 
 internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
@@ -233,17 +241,18 @@ fun CadenceApp(
                 onCheckForUpdates = { onFeedback ->
                     if (!isCheckingUpdates) {
                         isCheckingUpdates = true
+                        val loc = LocaleHelper.localizedContext(context)
                         scope.launch {
                             val result = AppUpdateChecker.checkForUpdate(context)
                             isCheckingUpdates = false
                             if (result == null) {
-                                onFeedback("Could not reach update servers right now.")
+                                onFeedback(loc.getString(R.string.update_server_unreachable))
                             } else {
                                 updateResult = result
                                 if (result.updateAvailable) {
                                     showUpdateDialog = true
                                 } else {
-                                    onFeedback("You're on the latest version (v${result.installed.versionName}).")
+                                    onFeedback(loc.getString(R.string.latest_version_banner, result.installed.versionName))
                                 }
                             }
                         }
@@ -290,7 +299,7 @@ private fun WorkspaceRoot(
                 val app = checkNotNull(this[APPLICATION_KEY])
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
-                CadenceViewModel(CadenceRepository(db, Firebase.auth), currentUserId)
+                CadenceViewModel(CadenceRepository(db, Firebase.auth), currentUserId, app)
             }
         }
     )
@@ -320,7 +329,8 @@ private fun WorkspaceRoot(
     ) { granted ->
         hasOsNotifPermission = granted
         if (granted) {
-            viewModel.showBanner("Device shift notifications enabled.")
+            val loc = LocaleHelper.localizedContext(context)
+            viewModel.showBanner(loc.getString(R.string.device_notifications_enabled_banner))
             val ready = profileState as? ProfileUiState.Ready
             if (ready != null) {
                 BackgroundSyncScheduler.ensureBackgroundSync(context, ready.profile.pushNotificationsEnabled)
@@ -420,17 +430,17 @@ private fun WorkspaceRoot(
                 contentAlignment = Alignment.Center
             ) {
                 CadenceCard(modifier = Modifier.widthIn(max = 460.dp)) {
-                    Text("Unable to load Cadence workspace", style = MaterialTheme.typography.titleLarge, color = Slate900)
+                    Text(stringResource(R.string.workspace_load_error), style = MaterialTheme.typography.titleLarge, color = Slate900)
                     Text(pState.message, style = MaterialTheme.typography.bodySmall, color = Slate600)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { viewModel.hydrateCurrentUser() }) {
-                            Text("Retry")
+                            Text(stringResource(R.string.retry))
                         }
                         OutlinedButton(onClick = {
                             BackgroundSyncScheduler.stopBackgroundSync(context)
                             GoogleAuthHelper.signOut(credentialManager, scope)
                         }) {
-                            Text("Sign Out")
+                            Text(stringResource(R.string.sign_out))
                         }
                     }
                 }
@@ -467,7 +477,7 @@ private fun WorkspaceRoot(
                                         style = MaterialTheme.typography.titleLarge
                                     )
                                     Text(
-                                        text = activeTab.label,
+                                        text = stringResource(activeTab.labelRes),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Slate600
                                     )
@@ -479,7 +489,7 @@ private fun WorkspaceRoot(
                                         onClick = { activeTab = CadenceTab.HISTORY },
                                         modifier = Modifier.testTag("top_history_button")
                                     ) {
-                                        Icon(Icons.Rounded.History, contentDescription = "Shift History")
+                                        Icon(Icons.Rounded.History, contentDescription = stringResource(R.string.nav_history))
                                     }
 
                                     IconButton(
@@ -493,7 +503,7 @@ private fun WorkspaceRoot(
                                                 }
                                             }
                                         ) {
-                                            Icon(Icons.Rounded.EventBusy, contentDescription = "Time Off Requests")
+                                            Icon(Icons.Rounded.EventBusy, contentDescription = stringResource(R.string.cd_time_off_requests))
                                         }
                                     }
 
@@ -508,7 +518,7 @@ private fun WorkspaceRoot(
                                                 }
                                             }
                                         ) {
-                                            Icon(Icons.Rounded.Notifications, contentDescription = "Notifications")
+                                            Icon(Icons.Rounded.Notifications, contentDescription = stringResource(R.string.cd_notifications))
                                         }
                                     }
                                 }
@@ -517,7 +527,7 @@ private fun WorkspaceRoot(
                                     onClick = { showProfileDialog = true },
                                     modifier = Modifier.testTag("top_profile_button")
                                 ) {
-                                    Icon(Icons.Rounded.Settings, contentDescription = "Profile & Preferences")
+                                    Icon(Icons.Rounded.Settings, contentDescription = stringResource(R.string.profile_settings))
                                 }
                             }
                         )
@@ -530,6 +540,7 @@ private fun WorkspaceRoot(
                             ) {
                                 bottomBarTabs.forEach { tab ->
                                     val selected = activeTab == tab
+                                    val tabLabel = stringResource(tab.labelRes)
                                     NavigationBarItem(
                                         selected = selected,
                                         onClick = { activeTab = tab },
@@ -546,10 +557,10 @@ private fun WorkspaceRoot(
                                                     }
                                                 }
                                             ) {
-                                                Icon(tab.icon, contentDescription = tab.label)
+                                                Icon(tab.icon, contentDescription = tabLabel)
                                             }
                                         },
-                                        label = { Text(tab.label) },
+                                        label = { Text(tabLabel) },
                                         modifier = Modifier.testTag("nav_${tab.route}")
                                     )
                                 }
@@ -575,6 +586,7 @@ private fun WorkspaceRoot(
                                         CadenceTab.SCHEDULE -> data.conflictShiftsCount
                                         else -> 0
                                     }
+                                    val tabLabel = stringResource(tab.labelRes)
                                     NavigationRailItem(
                                         selected = activeTab == tab,
                                         onClick = { activeTab = tab },
@@ -586,10 +598,10 @@ private fun WorkspaceRoot(
                                                     }
                                                 }
                                             ) {
-                                                Icon(tab.icon, contentDescription = tab.label)
+                                                Icon(tab.icon, contentDescription = tabLabel)
                                             }
                                         },
-                                        label = { Text(tab.label) },
+                                        label = { Text(tabLabel) },
                                         modifier = Modifier.testTag("rail_${tab.route}")
                                     )
                                 }
@@ -864,7 +876,7 @@ private fun AppUpdateDialog(
                             color = Blue700
                         )
                         Text(
-                            text = "Source: ${source.label}",
+                            text = stringResource(R.string.source_format, stringResource(source.labelRes)),
                             style = MaterialTheme.typography.labelMedium,
                             color = Slate600
                         )
@@ -951,10 +963,18 @@ private fun ProfileSettingsDialog(
     onSave: (name: String, dept: String, weeklyTarget: Double, pushEnabled: Boolean) -> Unit,
     onSignOut: () -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf(data.profile.displayName) }
     var dept by remember { mutableStateOf(data.profile.department) }
     var targetText by remember { mutableStateOf(data.profile.weeklyHoursTarget.toInt().toString()) }
     var pushEnabled by remember { mutableStateOf(data.profile.pushNotificationsEnabled) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+
+    val roleLabel = if (data.isManager) {
+        stringResource(R.string.role_manager)
+    } else {
+        stringResource(R.string.role_staff)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -965,28 +985,28 @@ private fun ProfileSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "${data.profile.email} • ${if (data.isManager) "Manager" else "Staff"}",
+                    text = stringResource(R.string.email_role_format, data.profile.email, roleLabel),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Display Name") },
+                    label = { Text(stringResource(R.string.display_name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = dept,
                     onValueChange = { dept = it },
-                    label = { Text("Department") },
+                    label = { Text(stringResource(R.string.department_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = targetText,
                     onValueChange = { targetText = it.filter { ch -> ch.isDigit() } },
-                    label = { Text("Weekly Hours Target") },
+                    label = { Text(stringResource(R.string.weekly_hours_target_label)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1000,6 +1020,8 @@ private fun ProfileSettingsDialog(
                     Switch(checked = pushEnabled, onCheckedChange = { pushEnabled = it })
                 }
 
+                LanguageSettingsRow(onClick = { showLanguageDialog = true })
+
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = Slate50,
@@ -1012,7 +1034,12 @@ private fun ProfileSettingsDialog(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "App Version v${installedAppInfo.versionName} (${installedAppInfo.versionCode}) • ${installedAppInfo.installSource.label}",
+                            text = stringResource(
+                                R.string.app_version_format,
+                                installedAppInfo.versionName,
+                                installedAppInfo.versionCode,
+                                stringResource(installedAppInfo.installSource.labelRes)
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
@@ -1025,7 +1052,7 @@ private fun ProfileSettingsDialog(
                             ) {
                                 Icon(Icons.Rounded.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text("Update Available (v${updateResult.latest.versionName})")
+                                Text(stringResource(R.string.update_available_version_format, updateResult.latest.versionName))
                             }
                         } else {
                             OutlinedButton(
@@ -1079,4 +1106,15 @@ private fun ProfileSettingsDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
+
+    if (showLanguageDialog) {
+        LanguagePickerDialog(
+            onDismiss = { showLanguageDialog = false },
+            onLanguageSelected = { option ->
+                showLanguageDialog = false
+                onDismiss()
+                LocaleHelper.setAppLanguage(context, option.tag)
+            }
+        )
+    }
 }

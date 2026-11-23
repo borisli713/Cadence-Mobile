@@ -200,6 +200,7 @@ object RealtimeAlertMonitor {
                             reportsFlow
                         ) { chgSnap, toSnap, repSnap ->
                             val payloads = NotificationHelper.buildManagerWorkPayloads(
+                                context = appContext,
                                 managerUid = uid,
                                 scheduleChanges = chgSnap.documents.mapNotNull { it.toScheduleChangeRequest() },
                                 timeOffRequests = toSnap.documents.mapNotNull { it.toTimeOffRequest() },
@@ -300,6 +301,7 @@ object RealtimeAlertMonitor {
                 queryServerOrCache(db.collection("shiftReports").whereEqualTo("status", "submitted"))
             }
             val payloads = NotificationHelper.buildManagerWorkPayloads(
+                context = appContext,
                 managerUid = uid,
                 scheduleChanges = chgDeferred.await().documents.mapNotNull { it.toScheduleChangeRequest() },
                 timeOffRequests = toDeferred.await().documents.mapNotNull { it.toTimeOffRequest() },

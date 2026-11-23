@@ -42,7 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ScheduleChangeType
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.ShiftReportStatus
@@ -110,18 +112,23 @@ fun OverviewScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "Welcome back, ${data.profile.displayName}",
+                            text = stringResource(R.string.welcome_back_format, data.profile.displayName),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Slate900
                         )
+                        val workspaceSubtitle = if (data.isManager) {
+                            stringResource(R.string.manager_workspace)
+                        } else {
+                            stringResource(R.string.staff_member)
+                        }
                         Text(
-                            text = "${data.profile.department} • ${if (data.isManager) "Manager Workspace" else "Staff Member"}",
+                            text = stringResource(R.string.email_role_format, data.profile.department, workspaceSubtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
                     }
                     StatusPill(
-                        label = if (data.isManager) "Manager" else "Staff",
+                        label = stringResource(if (data.isManager) R.string.role_manager else R.string.role_staff),
                         tone = if (data.isManager) BadgeTone.INFO else BadgeTone.NEUTRAL
                     )
                 }
@@ -139,7 +146,7 @@ fun OverviewScreen(
                     ) {
                         Icon(Icons.Rounded.Assignment, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Log Shift Report")
+                        Text(stringResource(R.string.btn_log_shift_report))
                     }
 
                     if (data.isManager) {
@@ -149,7 +156,7 @@ fun OverviewScreen(
                         ) {
                             Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Review Approvals (${data.pendingApprovalsCount})")
+                            Text(stringResource(R.string.btn_review_approvals_format, data.pendingApprovalsCount))
                         }
                     }
 
@@ -163,7 +170,7 @@ fun OverviewScreen(
                     ) {
                         Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Request Shift Change")
+                        Text(stringResource(R.string.btn_request_shift_change))
                     }
 
                     FilledTonalButton(
@@ -172,19 +179,19 @@ fun OverviewScreen(
                     ) {
                         Icon(Icons.Rounded.Today, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("My Schedule (${data.myAssignedShifts.size})")
+                        Text(stringResource(R.string.btn_my_schedule_count, data.myAssignedShifts.size))
                     }
 
                     OutlinedButton(onClick = onNavigateToSchedule) {
                         Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Schedule & Fairness")
+                        Text(stringResource(R.string.btn_schedule_fairness))
                     }
 
                     OutlinedButton(onClick = onNavigateToTimeOff) {
                         Icon(Icons.Rounded.EventAvailable, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Time Off (${data.pendingTimeOffCount})")
+                        Text(stringResource(R.string.btn_time_off_count, data.pendingTimeOffCount))
                     }
 
                     OutlinedButton(
@@ -193,7 +200,7 @@ fun OverviewScreen(
                     ) {
                         Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Shift History")
+                        Text(stringResource(R.string.nav_history))
                     }
                 }
             }
@@ -207,17 +214,26 @@ fun OverviewScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     KpiTile(
-                        title = "My Hours vs Target",
-                        value = "${FairnessEngine.formatHours(myLoggedHours + myScheduledHours)}h",
-                        subtitle = "${FairnessEngine.formatHours(myLoggedHours)}h verified • ${FairnessEngine.formatHours(data.profile.weeklyHoursTarget)}h goal",
+                        title = stringResource(R.string.kpi_my_hours_target),
+                        value = stringResource(
+                            R.string.kpi_hours_value_format,
+                            FairnessEngine.formatHours(myLoggedHours + myScheduledHours)
+                        ),
+                        subtitle = stringResource(
+                            R.string.kpi_my_hours_subtitle_format,
+                            FairnessEngine.formatHours(myLoggedHours),
+                            FairnessEngine.formatHours(data.profile.weeklyHoursTarget)
+                        ),
                         icon = Icons.Rounded.Schedule,
                         tone = BadgeTone.INFO,
                         modifier = Modifier.weight(1f)
                     )
                     KpiTile(
-                        title = "Pending Changes",
+                        title = stringResource(R.string.kpi_pending_changes),
                         value = "${data.pendingApprovalsCount}",
-                        subtitle = if (data.isManager) "Ready for Accept All" else "Awaiting review",
+                        subtitle = stringResource(
+                            if (data.isManager) R.string.kpi_ready_accept_all else R.string.kpi_awaiting_review
+                        ),
                         icon = Icons.Rounded.FactCheck,
                         tone = if (data.pendingApprovalsCount > 0) BadgeTone.WARNING else BadgeTone.SUCCESS,
                         modifier = Modifier.weight(1f)
@@ -228,17 +244,19 @@ fun OverviewScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     KpiTile(
-                        title = "Overlap Conflicts",
+                        title = stringResource(R.string.kpi_overlap_conflicts),
                         value = "${data.conflictShiftsCount}",
-                        subtitle = if (data.conflictShiftsCount > 0) "Tap Schedule to resolve" else "Zero overlaps",
+                        subtitle = stringResource(
+                            if (data.conflictShiftsCount > 0) R.string.kpi_tap_schedule_resolve else R.string.kpi_zero_overlaps
+                        ),
                         icon = Icons.Rounded.WarningAmber,
                         tone = if (data.conflictShiftsCount > 0) BadgeTone.DANGER else BadgeTone.SUCCESS,
                         modifier = Modifier.weight(1f)
                     )
                     KpiTile(
-                        title = "Unread Alerts",
+                        title = stringResource(R.string.kpi_unread_alerts),
                         value = "${data.unreadNotificationsCount}",
-                        subtitle = "${data.notifications.size} total alerts",
+                        subtitle = stringResource(R.string.kpi_total_alerts_format, data.notifications.size),
                         icon = Icons.Rounded.NotificationsActive,
                         tone = if (data.unreadNotificationsCount > 0) BadgeTone.INFO else BadgeTone.NEUTRAL,
                         modifier = Modifier.weight(1f)
@@ -254,12 +272,12 @@ fun OverviewScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("My Assigned Shifts", style = MaterialTheme.typography.titleMedium, color = Slate900)
+                Text(stringResource(R.string.section_my_assigned_shifts), style = MaterialTheme.typography.titleMedium, color = Slate900)
                 OutlinedButton(
                     onClick = onNavigateToMySchedule,
                     modifier = Modifier.testTag("overview_my_shifts_view_all")
                 ) {
-                    Text("View All (${data.myAssignedShifts.size})")
+                    Text(stringResource(R.string.btn_view_all_count, data.myAssignedShifts.size))
                 }
             }
         }
@@ -268,8 +286,8 @@ fun OverviewScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.Today,
-                    title = "No Shifts Assigned to You Yet",
-                    subtitle = "Shifts assigned to your account on the Web App or Android appear here automatically."
+                    title = stringResource(R.string.empty_my_shifts_title),
+                    subtitle = stringResource(R.string.empty_my_shifts_subtitle)
                 )
             }
         } else {
@@ -296,15 +314,21 @@ fun OverviewScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(shift.title, style = MaterialTheme.typography.titleMedium, color = Slate900)
                             Text(
-                                text = "${shift.date}  •  ${shift.startTime}-${shift.endTime} (${FairnessEngine.formatHours(shift.durationHours)}h)",
+                                text = stringResource(
+                                    R.string.shift_meta_duration_format,
+                                    shift.date,
+                                    shift.startTime,
+                                    shift.endTime,
+                                    FairnessEngine.formatHours(shift.durationHours)
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = shift.status.label, tone = tone)
+                        StatusPill(label = stringResource(shift.status.labelRes), tone = tone)
                     }
                     Text(
-                        text = "${shift.department} • Tap to request shift change",
+                        text = stringResource(R.string.tap_request_shift_change_format, shift.department),
                         style = MaterialTheme.typography.bodySmall,
                         color = Blue700
                     )
@@ -319,9 +343,9 @@ fun OverviewScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Active Team Schedule", style = MaterialTheme.typography.titleMedium, color = Slate900)
+                Text(stringResource(R.string.section_active_team_schedule), style = MaterialTheme.typography.titleMedium, color = Slate900)
                 OutlinedButton(onClick = onNavigateToSchedule) {
-                    Text("View All (${data.shifts.size})")
+                    Text(stringResource(R.string.btn_view_all_count, data.shifts.size))
                 }
             }
         }
@@ -330,12 +354,10 @@ fun OverviewScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.CalendarMonth,
-                    title = "No Shifts Scheduled Yet",
-                    subtitle = if (data.isManager) {
-                        "Head to Schedule or Team to generate a weekly schedule or load sample shifts."
-                    } else {
-                        "Submit shift availability under Schedule so your manager can assign shifts fairly."
-                    }
+                    title = stringResource(R.string.empty_no_shifts_title),
+                    subtitle = stringResource(
+                        if (data.isManager) R.string.empty_no_shifts_manager else R.string.empty_no_shifts_staff
+                    )
                 )
             }
         } else {
@@ -361,18 +383,24 @@ fun OverviewScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(shift.title, style = MaterialTheme.typography.titleMedium, color = Slate900)
                             Text(
-                                text = "${shift.date}  •  ${shift.startTime}-${shift.endTime} (${FairnessEngine.formatHours(shift.durationHours)}h)",
+                                text = stringResource(
+                                    R.string.shift_meta_duration_format,
+                                    shift.date,
+                                    shift.startTime,
+                                    shift.endTime,
+                                    FairnessEngine.formatHours(shift.durationHours)
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = shift.status.label, tone = tone)
+                        StatusPill(label = stringResource(shift.status.labelRes), tone = tone)
                     }
                     Text(
                         text = if (shift.assignedName.isNotBlank()) {
-                            "Assigned: ${shift.assignedName} • ${shift.department}"
+                            stringResource(R.string.assigned_to_dept_format, shift.assignedName, shift.department)
                         } else {
-                            "Open / Unassigned • ${shift.department}"
+                            stringResource(R.string.open_unassigned_dept_format, shift.department)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate600
@@ -388,9 +416,9 @@ fun OverviewScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Recent Status Updates", style = MaterialTheme.typography.titleMedium, color = Slate900)
+                Text(stringResource(R.string.section_recent_status_updates), style = MaterialTheme.typography.titleMedium, color = Slate900)
                 OutlinedButton(onClick = onNavigateToNotifications) {
-                    Text("Alerts")
+                    Text(stringResource(R.string.nav_alerts))
                 }
             }
         }
@@ -399,8 +427,8 @@ fun OverviewScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.NotificationsActive,
-                    title = "No Recent Notifications",
-                    subtitle = "Schedule approvals, report verifications, and fairness assignments appear here."
+                    title = stringResource(R.string.empty_no_notifs_title),
+                    subtitle = stringResource(R.string.empty_no_notifs_subtitle)
                 )
             }
         } else {
@@ -414,7 +442,7 @@ fun OverviewScreen(
                     ) {
                         Text(notif.title, style = MaterialTheme.typography.titleSmall, color = Slate900, modifier = Modifier.weight(1f))
                         if (!notif.isRead) {
-                            StatusPill(label = "Unread", tone = BadgeTone.INFO)
+                            StatusPill(label = stringResource(R.string.badge_unread), tone = BadgeTone.INFO)
                         }
                     }
                     Text(notif.message, style = MaterialTheme.typography.bodySmall, color = Slate600)
@@ -424,14 +452,14 @@ fun OverviewScreen(
 
         // Latest Shift Reports
         item {
-            Text("Latest Shift Reports", style = MaterialTheme.typography.titleMedium, color = Slate900)
+            Text(stringResource(R.string.section_latest_shift_reports), style = MaterialTheme.typography.titleMedium, color = Slate900)
         }
         if (recentReports.isEmpty()) {
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.Assignment,
-                    title = "No Shift Reports Logged",
-                    subtitle = "Tap Log Shift Report above to record completed hours and handoff notes."
+                    title = stringResource(R.string.empty_no_reports_title),
+                    subtitle = stringResource(R.string.empty_no_reports_subtitle)
                 )
             }
         } else {
@@ -451,12 +479,17 @@ fun OverviewScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(rep.shiftTitle, style = MaterialTheme.typography.titleSmall, color = Slate900)
                             Text(
-                                text = "${rep.staffName} • ${rep.date} • ${FairnessEngine.formatHours(rep.workedHours)}h",
+                                text = stringResource(
+                                    R.string.overview_report_meta_format,
+                                    rep.staffName,
+                                    rep.date,
+                                    FairnessEngine.formatHours(rep.workedHours)
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = rep.status.label, tone = tone)
+                        StatusPill(label = stringResource(rep.status.labelRes), tone = tone)
                     }
                 }
             }

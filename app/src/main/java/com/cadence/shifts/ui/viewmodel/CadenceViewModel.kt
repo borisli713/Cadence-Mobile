@@ -1,8 +1,11 @@
 package com.cadence.shifts.ui.viewmodel
 
+import android.content.Context
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cadence.shifts.R
 import com.cadence.shifts.data.firebase.unwrapFirestoreErrorMessage
 import com.cadence.shifts.data.model.ApprovalStatus
 import com.cadence.shifts.data.model.PushNotificationRecord
@@ -20,6 +23,7 @@ import com.cadence.shifts.data.model.UserRole
 import com.cadence.shifts.data.model.WeekSlotConfig
 import com.cadence.shifts.data.repository.CadenceRepository
 import com.cadence.shifts.domain.FairnessEngine
+import com.cadence.shifts.util.LocaleHelper
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
@@ -66,8 +70,15 @@ data class WorkspaceUiData(
 @OptIn(ExperimentalCoroutinesApi::class)
 class CadenceViewModel(
     private val repository: CadenceRepository,
-    private val currentUserId: String
+    private val currentUserId: String,
+    private val appContext: Context? = null
 ) : ViewModel() {
+
+    private fun msg(@StringRes resId: Int, vararg args: Any): String? {
+        val ctx = appContext ?: return null
+        val loc = LocaleHelper.localizedContext(ctx)
+        return if (args.isEmpty()) loc.getString(resId) else loc.getString(resId, *args)
+    }
 
     private val _profileState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
     val profileState: StateFlow<ProfileUiState> = _profileState.asStateFlow()
@@ -125,7 +136,10 @@ class CadenceViewModel(
                 if (error is CancellationException && unwrapFirestoreErrorMessage(error, "") == error.message) {
                     throw error
                 }
-                val msg = unwrapFirestoreErrorMessage(error, "Failed to sync workspace data.")
+                val msg = unwrapFirestoreErrorMessage(
+                    error,
+                    msg(R.string.vm_err_stream_sync) ?: "Failed to sync workspace data."
+                )
                 Log.w(TAG, "Stream error: $msg", error)
                 emit(WorkspaceUiData(profile = baseProfile, streamError = msg))
             }
@@ -143,7 +157,9 @@ class CadenceViewModel(
     fun hydrateCurrentUser() {
         val user = Firebase.auth.currentUser
         if (user == null || user.uid != currentUserId) {
-            _profileState.value = ProfileUiState.Error("User session expired. Please sign in again.")
+            _profileState.value = ProfileUiState.Error(
+                msg(R.string.vm_err_session_expired) ?: "User session expired. Please sign in again."
+            )
             return
         }
         _profileState.value = ProfileUiState.Loading
@@ -167,7 +183,10 @@ class CadenceViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val msg = unwrapFirestoreErrorMessage(e, "Unable to initialize Cadence profile.")
+                val msg = unwrapFirestoreErrorMessage(
+                    e,
+                    msg(R.string.vm_err_init_profile) ?: "Unable to initialize Cadence profile."
+                )
                 _profileState.value = ProfileUiState.Error(msg)
             }
         }
@@ -183,7 +202,7 @@ class CadenceViewModel(
 
     fun updateWeekSlots(slots: List<WeekSlotConfig>) {
         _weekSlots.value = slots
-        showBanner("Weekly shift slot templates updated.")
+        showBanner(msg(R.string.vm_banner_slots_updated) ?: "Weekly shift slot templates updated.")
     }
 
     private fun launchAction(actionKey: String, block: suspend () -> Unit) {
@@ -194,7 +213,12 @@ class CadenceViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                showBanner(unwrapFirestoreErrorMessage(e, "Action failed. Please check permissions."))
+                showBanner(
+                    unwrapFirestoreErrorMessage(
+                        e,
+                        msg(R.string.vm_err_action_failed) ?: "Action failed. Please check permissions."
+                    )
+                )
             } finally {
                 _busyAction.value = null
             }
@@ -223,7 +247,7 @@ class CadenceViewModel(
         )
         _profileFlow.value = updated
         _profileState.value = ProfileUiState.Ready(updated)
-        showBanner("Profile preferences saved.")
+        showBanner(msg(R.string.vm_banner_prefs_saved) ?: "Profile preferences saved.")
     }
 
     fun createShift(
@@ -290,7 +314,13 @@ class CadenceViewModel(
             fairnessNote = note,
             createdBy = currentUserId
         )
-        showBanner(if (status == ShiftStatus.OPEN) "Open shift added." else "Shift scheduled for $assignedName.")
+        showBanner(
+            if (status == ShiftStatus.OPEN) {
+                msg(R.string.vm_banner_open_shift_added) ?: "Open shift added."
+            } else {
+                msg(R.string.vm_banner_shift_scheduled, assignedName) ?: "Shift scheduled for $assignedName."
+            }
+        )
     }
 
     fun updateShift(
@@ -317,12 +347,12 @@ class CadenceViewModel(
             status = status,
             fairnessNote = fairnessNote
         )
-        showBanner("Shift updated.")
+        showBanner(msg(R.string.vm_banner_shift_updated) ?: "Shift updated.")
     }
 
     fun deleteShift(shiftId: String) = launchAction("delete_shift") {
         repository.deleteShift(shiftId)
-        showBanner("Shift removed.")
+        showBanner(msg(R.string.vm_banner_shift_removed) ?: "Shift removed.")
     }
 
     fun arrangeAllOverlapsByFairness() = launchAction("arrange_overlaps") {
@@ -333,11 +363,14 @@ class CadenceViewModel(
             timeOffRequests = data.timeOffRequests
         )
         if (plan.isEmpty()) {
-            showBanner("No overlapping or multi-candidate shifts to arrange.")
+            showBanner(msg(R.string.vm_banner_no_overlaps) ?: "No overlapping or multi-candidate shifts to arrange.")
             return@launchAction
         }
         val count = repository.commitFairnessArrangementPlan(plan, currentUserId)
-        showBanner("Arranged $count overlapping shift(s) by fairness.")
+        showBanner(
+            msg(R.string.vm_banner_overlaps_arranged, count)
+                ?: "Arranged $count overlapping shift(s) by fairness."
+        )
     }
 
     fun assignOpenShiftsByFairness(requireExplicitSubmission: Boolean = false) = launchAction("assign_open") {
@@ -350,11 +383,14 @@ class CadenceViewModel(
             requireExplicitSubmission = requireExplicitSubmission
         )
         if (plan.isEmpty()) {
-            showBanner("No eligible open shifts matched available staff.")
+            showBanner(msg(R.string.vm_banner_no_open_eligible) ?: "No eligible open shifts matched available staff.")
             return@launchAction
         }
         val count = repository.commitOpenShiftAssignmentPlan(plan, currentUserId)
-        showBanner("Assigned $count open shift(s) by fairness.")
+        showBanner(
+            msg(R.string.vm_banner_open_assigned, count)
+                ?: "Assigned $count open shift(s) by fairness."
+        )
     }
 
     fun generateWeeklySchedule(weekStartDate: String) = launchAction("generate_week") {
@@ -378,9 +414,12 @@ class CadenceViewModel(
         } else 0
 
         if (planned.isEmpty() && resolvedOverlaps == 0) {
-            showBanner("This week's shift slots are already populated.")
+            showBanner(msg(R.string.vm_banner_week_populated) ?: "This week's shift slots are already populated.")
         } else {
-            showBanner("Generated $assigned assigned + $open open shift(s); resolved $resolvedOverlaps overlap(s).")
+            showBanner(
+                msg(R.string.vm_banner_week_generated, assigned, open, resolvedOverlaps)
+                    ?: "Generated $assigned assigned + $open open shift(s); resolved $resolvedOverlaps overlap(s)."
+            )
         }
     }
 
@@ -407,7 +446,7 @@ class CadenceViewModel(
             proposedAssigneeName = proposedAssigneeName,
             reason = reason
         )
-        showBanner("Schedule change request submitted for manager approval.")
+        showBanner(msg(R.string.vm_banner_change_submitted) ?: "Schedule change request submitted for manager approval.")
     }
 
     fun decideScheduleChange(
@@ -427,9 +466,11 @@ class CadenceViewModel(
         )
         showBanner(
             if (decision == ApprovalStatus.APPROVED) {
-                "Approved ${req.requesterName}'s request & notified staff."
+                msg(R.string.vm_banner_change_approved, req.requesterName)
+                    ?: "Approved ${req.requesterName}'s request & notified staff."
             } else {
-                "Denied ${req.requesterName}'s request & notified staff."
+                msg(R.string.vm_banner_change_denied, req.requesterName)
+                    ?: "Denied ${req.requesterName}'s request & notified staff."
             }
         )
     }
@@ -438,7 +479,7 @@ class CadenceViewModel(
         val data = workspaceData.value ?: return@launchAction
         val pending = data.scheduleChanges.filter { it.status == ApprovalStatus.PENDING }
         if (pending.isEmpty()) {
-            showBanner("No pending schedule requests to approve.")
+            showBanner(msg(R.string.vm_banner_no_pending_approvals) ?: "No pending schedule requests to approve.")
             return@launchAction
         }
         val count = repository.acceptAllPendingChanges(
@@ -447,7 +488,10 @@ class CadenceViewModel(
             reviewerUid = data.profile.uid,
             reviewerName = data.profile.displayName
         )
-        showBanner("Accept All complete: approved $count request(s) and notified staff.")
+        showBanner(
+            msg(R.string.vm_banner_accept_all_done, count)
+                ?: "Accept All complete: approved $count request(s) and notified staff."
+        )
     }
 
     fun submitShiftReport(
@@ -473,7 +517,7 @@ class CadenceViewModel(
             breakMinutes = breakMinutes,
             handoffNotes = handoffNotes
         )
-        showBanner("Shift report submitted for manager verification.")
+        showBanner(msg(R.string.vm_banner_report_submitted) ?: "Shift report submitted for manager verification.")
     }
 
     fun verifyOrFlagReport(report: ShiftReport, decision: ShiftReportStatus) =
@@ -490,11 +534,14 @@ class CadenceViewModel(
                 staffEntry = staffEntry,
                 linkedShift = linkedShift
             )
+            val hrs = FairnessEngine.formatHours(report.workedHours)
             showBanner(
                 if (decision == ShiftReportStatus.VERIFIED) {
-                    "Verified ${report.staffName}'s shift report (+${FairnessEngine.formatHours(report.workedHours)}h)."
+                    msg(R.string.vm_banner_report_verified, report.staffName, hrs)
+                        ?: "Verified ${report.staffName}'s shift report (+${hrs}h)."
                 } else {
-                    "Flagged ${report.staffName}'s shift report."
+                    msg(R.string.vm_banner_report_flagged, report.staffName)
+                        ?: "Flagged ${report.staffName}'s shift report."
                 }
             )
         }
@@ -517,12 +564,15 @@ class CadenceViewModel(
             shiftTitle = shiftTitle,
             notes = notes
         )
-        showBanner("Submitted shift availability for $count date(s).")
+        showBanner(
+            msg(R.string.vm_banner_availability_submitted, count)
+                ?: "Submitted shift availability for $count date(s)."
+        )
     }
 
     fun withdrawSubmission(submissionId: String) = launchAction("withdraw_sub_$submissionId") {
         repository.withdrawShiftSubmission(submissionId)
-        showBanner("Shift availability submission withdrawn.")
+        showBanner(msg(R.string.vm_banner_availability_withdrawn) ?: "Shift availability submission withdrawn.")
     }
 
     fun createTimeOffRequest(startDate: String, endDate: String, reason: String) =
@@ -536,12 +586,12 @@ class CadenceViewModel(
                 endDate = endDate,
                 reason = reason
             )
-            showBanner("Time off request submitted.")
+            showBanner(msg(R.string.vm_banner_time_off_submitted) ?: "Time off request submitted.")
         }
 
     fun withdrawTimeOffRequest(requestId: String) = launchAction("withdraw_to_$requestId") {
         repository.withdrawTimeOffRequest(requestId)
-        showBanner("Time off request withdrawn.")
+        showBanner(msg(R.string.vm_banner_time_off_withdrawn) ?: "Time off request withdrawn.")
     }
 
     fun decideTimeOffRequest(
@@ -559,9 +609,9 @@ class CadenceViewModel(
         )
         showBanner(
             if (decision == ApprovalStatus.APPROVED) {
-                "Approved time off for ${req.staffName}."
+                msg(R.string.vm_banner_time_off_approved, req.staffName) ?: "Approved time off for ${req.staffName}."
             } else {
-                "Denied time off for ${req.staffName}."
+                msg(R.string.vm_banner_time_off_denied, req.staffName) ?: "Denied time off for ${req.staffName}."
             }
         )
     }
@@ -573,13 +623,13 @@ class CadenceViewModel(
     fun markAllNotificationsRead() = launchAction("mark_all_read") {
         val data = workspaceData.value ?: return@launchAction
         repository.markAllNotificationsRead(data.notifications)
-        showBanner("All notifications marked as read.")
+        showBanner(msg(R.string.vm_banner_all_read) ?: "All notifications marked as read.")
     }
 
     fun sendTestAlert() = launchAction("test_alert") {
         val profile = _profileFlow.value ?: return@launchAction
         repository.sendTestPushNotification(profile.uid, profile.displayName)
-        showBanner("Test notification dispatched.")
+        showBanner(msg(R.string.vm_banner_test_alert_sent) ?: "Test notification dispatched.")
     }
 
     fun addRosterMember(
@@ -589,22 +639,28 @@ class CadenceViewModel(
         role: UserRole
     ) = launchAction("add_roster") {
         repository.addRosterStaffMember(displayName, department, weeklyHoursTarget, role)
-        showBanner("Added $displayName to team roster.")
+        showBanner(msg(R.string.vm_banner_member_added, displayName) ?: "Added $displayName to team roster.")
     }
 
     fun toggleManagerRole(entry: StaffDirectoryEntry, grantManager: Boolean) =
         launchAction("toggle_role_${entry.uid}") {
             repository.toggleManagerRole(entry, grantManager, currentUserId)
             showBanner(
-                if (grantManager) "${entry.displayName} promoted to Manager."
-                else "${entry.displayName} set to Staff."
+                if (grantManager) {
+                    msg(R.string.vm_banner_promoted_manager, entry.displayName) ?: "${entry.displayName} promoted to Manager."
+                } else {
+                    msg(R.string.vm_banner_set_staff, entry.displayName) ?: "${entry.displayName} set to Staff."
+                }
             )
         }
 
     fun seedSampleData() = launchAction("seed_sample") {
         val profile = _profileFlow.value ?: return@launchAction
         repository.seedSampleWorkspaceData(profile.uid, profile.displayName)
-        showBanner("Loaded sample overlaps, pending approvals, report, and time off data.")
+        showBanner(
+            msg(R.string.vm_banner_sample_loaded)
+                ?: "Loaded sample overlaps, pending approvals, report, and time off data."
+        )
     }
 
     private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

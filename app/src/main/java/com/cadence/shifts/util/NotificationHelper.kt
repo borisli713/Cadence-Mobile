@@ -21,6 +21,7 @@ import com.cadence.shifts.data.model.ShiftReportStatus
 import com.cadence.shifts.data.model.TimeOffRequest
 import com.cadence.shifts.domain.FairnessEngine
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 data class PendingAlertPayload(
     val id: String,
@@ -31,7 +32,6 @@ data class PendingAlertPayload(
 
 object NotificationHelper {
     private const val CHANNEL_ID = "cadence_shift_alerts"
-    private const val CHANNEL_NAME = "Shift & Approval Alerts"
     private const val LEGACY_SYNC_CHANNEL_ID = "cadence_bg_sync"
     private const val ALERT_GROUP_KEY = "cadence_shift_alerts_group"
 
@@ -55,13 +55,14 @@ object NotificationHelper {
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val loc = LocaleHelper.localizedContext(context)
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val alertsChannel = NotificationChannel(
                 CHANNEL_ID,
-                CHANNEL_NAME,
+                loc.getString(R.string.notif_channel_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for approved schedule changes, verified reports, and shift fairness assignments."
+                description = loc.getString(R.string.notif_channel_desc)
                 enableVibration(true)
             }
             manager.createNotificationChannel(alertsChannel)
@@ -156,6 +157,7 @@ object NotificationHelper {
     private fun postGroupSummary(context: Context, count: Int) {
         if (!hasNotificationPermission(context) || count < 2) return
         ensureChannel(context)
+        val loc = LocaleHelper.localizedContext(context)
         val tapIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_OPEN_TAB, TAB_NOTIFICATIONS)
@@ -168,8 +170,8 @@ object NotificationHelper {
         )
         val summary = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Cadence Shift Updates")
-            .setContentText("$count new shift & approval notifications")
+            .setContentTitle(loc.getString(R.string.notif_summary_title))
+            .setContentText(loc.getString(R.string.notif_summary_body_format, count))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setGroup(ALERT_GROUP_KEY)
             .setGroupSummary(true)
@@ -192,12 +194,15 @@ object NotificationHelper {
         alerts: List<PushNotificationRecord>
     ) {
         if (alerts.isEmpty() || !hasNotificationPermission(context)) return
+        val loc = LocaleHelper.localizedContext(context)
+        val fallbackTitle = loc.getString(R.string.notif_fallback_title)
+        val fallbackBody = loc.getString(R.string.notif_fallback_body)
         val toSend = alerts.take(15)
         toSend.forEachIndexed { index, alert ->
             dispatchLocalNotification(
                 context = context,
-                title = alert.title.ifBlank { "Cadence Shift Update" },
-                message = alert.message.ifBlank { "Open Cadence to view your shift update." },
+                title = alert.title.ifBlank { fallbackTitle },
+                message = alert.message.ifBlank { fallbackBody },
                 notificationId = safeNotificationId(alert.id),
                 targetTabRoute = TAB_NOTIFICATIONS
             )
@@ -337,43 +342,63 @@ object NotificationHelper {
     }
 
     fun buildManagerWorkPayloads(
+        context: Context,
         managerUid: String,
         scheduleChanges: List<ScheduleChangeRequest>,
         timeOffRequests: List<TimeOffRequest>,
         shiftReports: List<ShiftReport>
     ): List<PendingAlertPayload> {
+        val loc = LocaleHelper.localizedContext(context)
+        val defaultStaff = loc.getString(R.string.notif_default_staff)
         val payloads = mutableListOf<PendingAlertPayload>()
         scheduleChanges
             .filter { it.status == ApprovalStatus.PENDING && it.requesterUid != managerUid }
             .forEach { req ->
-                val who = req.requesterName.ifBlank { "Staff member" }
-                val what = req.type.label.lowercase()
+                val who = req.requesterName.ifBlank { defaultStaff }
+                val what = loc.getString(req.type.labelRes).lowercase(Locale.getDefault())
                 payloads += PendingAlertPayload(
                     id = "mgr_chg_${req.id}",
-                    title = "New Shift Request",
-                    message = "$who requested $what for ${req.shiftTitle} (${req.proposedDate}).",
+                    title = loc.getString(R.string.notif_mgr_shift_req_title),
+                    message = loc.getString(
+                        R.string.notif_mgr_shift_req_body,
+                        who,
+                        what,
+                        req.shiftTitle,
+                        req.proposedDate
+                    ),
                     targetTabRoute = TAB_APPROVALS
                 )
             }
         timeOffRequests
             .filter { it.status == ApprovalStatus.PENDING && it.staffUid != managerUid }
             .forEach { req ->
-                val who = req.staffName.ifBlank { "Staff member" }
+                val who = req.staffName.ifBlank { defaultStaff }
                 payloads += PendingAlertPayload(
                     id = "mgr_to_${req.id}",
-                    title = "New Time-Off Request",
-                    message = "$who requested time off (${req.startDate} to ${req.endDate}).",
+                    title = loc.getString(R.string.notif_mgr_time_off_title),
+                    message = loc.getString(
+                        R.string.notif_mgr_time_off_body,
+                        who,
+                        req.startDate,
+                        req.endDate
+                    ),
                     targetTabRoute = TAB_TIME_OFF
                 )
             }
         shiftReports
             .filter { it.status == ShiftReportStatus.SUBMITTED && it.staffUid != managerUid }
             .forEach { rep ->
-                val who = rep.staffName.ifBlank { "Staff member" }
+                val who = rep.staffName.ifBlank { defaultStaff }
                 payloads += PendingAlertPayload(
                     id = "mgr_rep_${rep.id}",
-                    title = "Shift Report Submitted",
-                    message = "$who logged ${FairnessEngine.formatHours(rep.workedHours)}h for ${rep.shiftTitle} (${rep.date}).",
+                    title = loc.getString(R.string.notif_mgr_report_title),
+                    message = loc.getString(
+                        R.string.notif_mgr_report_body,
+                        who,
+                        FairnessEngine.formatHours(rep.workedHours),
+                        rep.shiftTitle,
+                        rep.date
+                    ),
                     targetTabRoute = TAB_REPORTS
                 )
             }

@@ -43,11 +43,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.ShiftReportStatus
 import com.cadence.shifts.data.model.ShiftStatus
@@ -64,11 +67,11 @@ import com.cadence.shifts.ui.theme.Slate900
 import com.cadence.shifts.ui.viewmodel.WorkspaceUiData
 import java.time.LocalDate
 
-private enum class ReportFilter(val label: String) {
-    ALL("All"),
-    SUBMITTED("Submitted"),
-    VERIFIED("Verified"),
-    FLAGGED("Flagged")
+private enum class ReportFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.filter_all),
+    SUBMITTED(R.string.report_status_submitted),
+    VERIFIED(R.string.report_status_verified),
+    FLAGGED(R.string.report_status_flagged)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -127,9 +130,9 @@ fun ShiftReportsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Shift Reports", style = MaterialTheme.typography.headlineSmall, color = Slate900)
+                        Text(stringResource(R.string.shift_reports_title), style = MaterialTheme.typography.headlineSmall, color = Slate900)
                         Text(
-                            text = "Log clock-in/out times and handoff notes. Managers verify to credit hours.",
+                            text = stringResource(R.string.shift_reports_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
@@ -141,7 +144,7 @@ fun ShiftReportsScreen(
                     ) {
                         Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Log Report")
+                        Text(stringResource(R.string.btn_log_report_short))
                     }
                 }
 
@@ -150,7 +153,7 @@ fun ShiftReportsScreen(
                         FilterChip(
                             selected = selectedFilter == filter,
                             onClick = { selectedFilter = filter },
-                            label = { Text(filter.label) }
+                            label = { Text(stringResource(filter.labelRes)) }
                         )
                     }
                 }
@@ -161,8 +164,8 @@ fun ShiftReportsScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.Assignment,
-                    title = "No Shift Reports Match Filter",
-                    subtitle = "Tap Log Report to record worked hours, breaks, and shift handoff notes."
+                    title = stringResource(R.string.empty_reports_title),
+                    subtitle = stringResource(R.string.empty_reports_subtitle)
                 )
             }
         } else {
@@ -186,11 +189,18 @@ fun ShiftReportsScreen(
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = report.status.label, tone = tone)
+                        StatusPill(label = stringResource(report.status.labelRes), tone = tone)
                     }
 
                     Text(
-                        text = "${report.date}  •  ${report.actualStartTime}–${report.actualEndTime}  •  Break ${report.breakMinutes}m  •  Net ${FairnessEngine.formatHours(report.workedHours)}h",
+                        text = stringResource(
+                            R.string.report_detail_format,
+                            report.date,
+                            report.actualStartTime,
+                            report.actualEndTime,
+                            report.breakMinutes,
+                            FairnessEngine.formatHours(report.workedHours)
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = Slate900
                     )
@@ -218,7 +228,7 @@ fun ShiftReportsScreen(
                             ) {
                                 Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Verify (+${FairnessEngine.formatHours(report.workedHours)}h)")
+                                Text(stringResource(R.string.btn_verify_hours_format, FairnessEngine.formatHours(report.workedHours)))
                             }
                             OutlinedButton(
                                 onClick = { onVerifyOrFlag(report, ShiftReportStatus.FLAGGED) },
@@ -228,7 +238,7 @@ fun ShiftReportsScreen(
                             ) {
                                 Icon(Icons.Rounded.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Flag")
+                                Text(stringResource(R.string.btn_flag))
                             }
                         }
                     }
@@ -282,7 +292,8 @@ private fun LogShiftReportDialog(
     var selectedShift by remember(initialShift?.id) { mutableStateOf(initialShift) }
     var dropdownExpanded by remember { mutableStateOf(false) }
 
-    var shiftTitle by remember(initialShift?.id) { mutableStateOf(initialShift?.title ?: "Morning Operations") }
+    val defaultTitle = stringResource(R.string.default_shift_morning)
+    var shiftTitle by remember(initialShift?.id) { mutableStateOf(initialShift?.title ?: defaultTitle) }
     var department by remember(initialShift?.id) { mutableStateOf(initialShift?.department ?: data.profile.department) }
     var date by remember(initialShift?.id) { mutableStateOf(initialShift?.date ?: LocalDate.now().toString()) }
     var startTime by remember(initialShift?.id) { mutableStateOf(initialShift?.startTime ?: "08:00") }
@@ -295,7 +306,7 @@ private fun LogShiftReportDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Log Completed Shift Report") },
+        title = { Text(stringResource(R.string.dialog_log_report)) },
         text = {
             Column(
                 modifier = Modifier
@@ -309,10 +320,10 @@ private fun LogShiftReportDialog(
                         onExpandedChange = { dropdownExpanded = it }
                     ) {
                         OutlinedTextField(
-                            value = selectedShift?.let { "${it.title} (${it.date})" } ?: "Custom / Unlinked Shift",
+                            value = selectedShift?.let { "${it.title} (${it.date})" } ?: stringResource(R.string.custom_unlinked_shift),
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Link Scheduled Shift (Optional)") },
+                            label = { Text(stringResource(R.string.link_scheduled_shift_optional)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -323,7 +334,7 @@ private fun LogShiftReportDialog(
                             onDismissRequest = { dropdownExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Custom / Unlinked Shift") },
+                                text = { Text(stringResource(R.string.custom_unlinked_shift)) },
                                 onClick = {
                                     selectedShift = null
                                     dropdownExpanded = false
@@ -350,21 +361,21 @@ private fun LogShiftReportDialog(
                 OutlinedTextField(
                     value = shiftTitle,
                     onValueChange = { shiftTitle = it },
-                    label = { Text("Shift Title") },
+                    label = { Text(stringResource(R.string.shift_title_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = department,
                     onValueChange = { department = it },
-                    label = { Text("Department") },
+                    label = { Text(stringResource(R.string.department_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = date,
                     onValueChange = { date = it },
-                    label = { Text("Date (YYYY-MM-DD)") },
+                    label = { Text(stringResource(R.string.date_iso_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -372,14 +383,14 @@ private fun LogShiftReportDialog(
                     OutlinedTextField(
                         value = startTime,
                         onValueChange = { startTime = it },
-                        label = { Text("Clock In (HH:mm)") },
+                        label = { Text(stringResource(R.string.clock_in_hhmm)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = endTime,
                         onValueChange = { endTime = it },
-                        label = { Text("Clock Out (HH:mm)") },
+                        label = { Text(stringResource(R.string.clock_out_hhmm)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -387,20 +398,20 @@ private fun LogShiftReportDialog(
                 OutlinedTextField(
                     value = breakText,
                     onValueChange = { breakText = it.filter { ch -> ch.isDigit() } },
-                    label = { Text("Break Minutes (0-180)") },
+                    label = { Text(stringResource(R.string.break_minutes_range)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
-                    text = "Computed Net Worked Hours: ${FairnessEngine.formatHours(netHours)}h",
+                    text = stringResource(R.string.computed_net_hours_format, FairnessEngine.formatHours(netHours)),
                     style = MaterialTheme.typography.titleSmall,
                     color = Slate900
                 )
                 OutlinedTextField(
                     value = handoffNotes,
                     onValueChange = { handoffNotes = it },
-                    label = { Text("Handoff Notes") },
+                    label = { Text(stringResource(R.string.handoff_notes_label)) },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
@@ -424,11 +435,11 @@ private fun LogShiftReportDialog(
                 enabled = shiftTitle.isNotBlank() && date.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
                     startTime.matches(Regex("\\d{2}:\\d{2}")) && endTime.matches(Regex("\\d{2}:\\d{2}"))
             ) {
-                Text("Submit Report")
+                Text(stringResource(R.string.submit_report))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }

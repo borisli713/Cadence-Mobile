@@ -36,10 +36,13 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ApprovalStatus
 import com.cadence.shifts.data.model.ScheduleChangeRequest
 import com.cadence.shifts.data.model.ScheduleChangeType
@@ -56,11 +59,11 @@ import com.cadence.shifts.ui.theme.Slate600
 import com.cadence.shifts.ui.theme.Slate900
 import com.cadence.shifts.ui.viewmodel.WorkspaceUiData
 
-private enum class ApprovalFilter(val label: String) {
-    PENDING("Pending"),
-    APPROVED("Approved"),
-    DENIED("Denied"),
-    ALL("All")
+private enum class ApprovalFilter(@StringRes val labelRes: Int) {
+    PENDING(R.string.approval_pending),
+    APPROVED(R.string.approval_approved),
+    DENIED(R.string.approval_denied),
+    ALL(R.string.filter_all)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -106,16 +109,12 @@ fun ManagerApprovalsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (data.isManager) "Manager Approvals" else "My Change Requests",
+                            text = stringResource(if (data.isManager) R.string.approvals_title_manager else R.string.approvals_title_staff),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Slate900
                         )
                         Text(
-                            text = if (data.isManager) {
-                                "Approve individual requests or use one-click Accept All to update shifts & notify staff."
-                            } else {
-                                "Track your submitted time changes, swaps, drops, and shift claims."
-                            },
+                            text = stringResource(if (data.isManager) R.string.approvals_subtitle_manager else R.string.approvals_subtitle_staff),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
@@ -129,7 +128,7 @@ fun ManagerApprovalsScreen(
                         ) {
                             Icon(Icons.Rounded.DoneAll, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Accept All ($pendingCount)")
+                            Text(stringResource(R.string.accept_all_count, pendingCount))
                         }
                     }
                 }
@@ -149,7 +148,7 @@ fun ManagerApprovalsScreen(
                         ) {
                             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("New Change Request")
+                            Text(stringResource(R.string.new_change_request))
                         }
                     }
 
@@ -159,7 +158,7 @@ fun ManagerApprovalsScreen(
                     ) {
                         Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Shift History")
+                        Text(stringResource(R.string.nav_history))
                     }
                 }
 
@@ -169,9 +168,12 @@ fun ManagerApprovalsScreen(
                             selected = filter == item,
                             onClick = { filter = item },
                             label = {
+                                val baseLabel = stringResource(item.labelRes)
                                 val label = if (item == ApprovalFilter.PENDING) {
-                                    "${item.label} ($pendingCount)"
-                                } else item.label
+                                    stringResource(R.string.filter_count_format, baseLabel, pendingCount)
+                                } else {
+                                    baseLabel
+                                }
                                 Text(label)
                             }
                         )
@@ -184,8 +186,8 @@ fun ManagerApprovalsScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.FactCheck,
-                    title = "No Requests in This Queue",
-                    subtitle = "All pending schedule changes, swaps, and claims have been handled."
+                    title = stringResource(R.string.empty_approvals_title),
+                    subtitle = stringResource(R.string.empty_approvals_subtitle)
                 )
             }
         } else {
@@ -205,34 +207,47 @@ fun ManagerApprovalsScreen(
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(req.shiftTitle, style = MaterialTheme.typography.titleMedium, color = Slate900)
                             Text(
-                                text = "Requested by ${req.requesterName} • ${req.type.label}",
+                                text = stringResource(
+                                    R.string.requested_by_type_format,
+                                    req.requesterName,
+                                    stringResource(req.type.labelRes)
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = req.status.label, tone = statusTone)
+                        StatusPill(label = stringResource(req.status.labelRes), tone = statusTone)
                     }
 
                     Text(
-                        text = "Current:  ${req.currentDate} ${req.currentStartTime}-${req.currentEndTime}",
+                        text = stringResource(
+                            R.string.current_schedule_format,
+                            req.currentDate,
+                            req.currentStartTime,
+                            req.currentEndTime
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = Slate600
                     )
                     Text(
-                        text = "Proposed: ${req.proposedDate} ${req.proposedStartTime}-${req.proposedEndTime}" +
-                            if (req.proposedAssigneeName.isNotBlank()) " → ${req.proposedAssigneeName}" else "",
+                        text = stringResource(
+                            R.string.proposed_schedule_format,
+                            req.proposedDate,
+                            req.proposedStartTime,
+                            req.proposedEndTime
+                        ) + if (req.proposedAssigneeName.isNotBlank()) " → ${req.proposedAssigneeName}" else "",
                         style = MaterialTheme.typography.labelSmall,
                         color = Blue700
                     )
                     Text(
-                        text = "Reason: ${req.reason}",
+                        text = stringResource(R.string.reason_line_format, req.reason),
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate900
                     )
 
                     if (req.reviewNote.isNotBlank()) {
                         Text(
-                            text = "Manager Note (${req.reviewedByName}): ${req.reviewNote}",
+                            text = stringResource(R.string.manager_note_format, req.reviewedByName, req.reviewNote),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
@@ -243,7 +258,7 @@ fun ManagerApprovalsScreen(
                         OutlinedTextField(
                             value = noteVal,
                             onValueChange = { reviewNotes[req.id] = it },
-                            label = { Text("Optional review note") },
+                            label = { Text(stringResource(R.string.optional_review_note)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -261,7 +276,7 @@ fun ManagerApprovalsScreen(
                             ) {
                                 Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Approve")
+                                Text(stringResource(R.string.btn_approve))
                             }
                             OutlinedButton(
                                 onClick = { onDecide(req, ApprovalStatus.DENIED, noteVal) },
@@ -273,7 +288,7 @@ fun ManagerApprovalsScreen(
                             ) {
                                 Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Deny")
+                                Text(stringResource(R.string.btn_deny))
                             }
                         }
                     }

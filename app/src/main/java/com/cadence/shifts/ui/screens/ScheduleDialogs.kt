@@ -46,7 +46,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ScheduleChangeType
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.ShiftStatus
@@ -65,6 +67,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 
 @Composable
 fun ShiftDetailDialog(
@@ -93,7 +96,7 @@ fun ShiftDetailDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(shift.title, modifier = Modifier.weight(1f))
-                StatusPill(label = shift.status.label, tone = tone)
+                StatusPill(label = stringResource(shift.status.labelRes), tone = tone)
             }
         },
         text = {
@@ -103,21 +106,33 @@ fun ShiftDetailDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = Slate900
                 )
-                Text("Department: ${shift.department}", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 Text(
-                    text = if (shift.assignedName.isNotBlank()) "Assigned to: ${shift.assignedName}" else "Open / Unassigned",
+                    text = stringResource(R.string.dept_format, shift.department),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Slate600
+                )
+                Text(
+                    text = if (shift.assignedName.isNotBlank()) {
+                        stringResource(R.string.assigned_to_format, shift.assignedName)
+                    } else {
+                        stringResource(R.string.open_unassigned)
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate900
                 )
                 if (shift.candidateUids.size > 1) {
                     Text(
-                        text = "${shift.candidateUids.size} overlapping candidates tracked",
+                        text = stringResource(R.string.overlapping_candidates_format, shift.candidateUids.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate600
                     )
                 }
                 if (shift.fairnessNote.isNotBlank()) {
-                    Text("Fairness Note: ${shift.fairnessNote}", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Text(
+                        text = stringResource(R.string.fairness_note_format, shift.fairnessNote),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Slate600
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -133,7 +148,7 @@ fun ShiftDetailDialog(
                 ) {
                     Icon(Icons.Rounded.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add to Google Calendar")
+                    Text(stringResource(R.string.btn_add_to_google_calendar))
                 }
 
                 OutlinedButton(
@@ -145,7 +160,15 @@ fun ShiftDetailDialog(
                 ) {
                     Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (shift.status == ShiftStatus.OPEN) "Claim Open Shift" else "Request Change / Swap")
+                    Text(
+                        stringResource(
+                            if (shift.status == ShiftStatus.OPEN) {
+                                R.string.btn_claim_open_shift
+                            } else {
+                                R.string.btn_request_change_swap
+                            }
+                        )
+                    )
                 }
 
                 if (isManager) {
@@ -159,7 +182,7 @@ fun ShiftDetailDialog(
                         ) {
                             Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Edit")
+                            Text(stringResource(R.string.btn_edit))
                         }
                         OutlinedButton(
                             onClick = {
@@ -171,14 +194,14 @@ fun ShiftDetailDialog(
                         ) {
                             Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Delete")
+                            Text(stringResource(R.string.btn_delete))
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         }
     )
 }
@@ -198,8 +221,10 @@ fun AddShiftDialog(
         leaveOpen: Boolean
     ) -> Unit
 ) {
-    var title by remember { mutableStateOf("Morning Operations") }
-    var department by remember { mutableStateOf("Operations") }
+    val defaultTitle = stringResource(R.string.default_shift_morning)
+    val defaultDept = stringResource(R.string.default_dept_operations)
+    var title by remember { mutableStateOf(defaultTitle) }
+    var department by remember { mutableStateOf(defaultDept) }
     var date by remember { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
     var startTime by remember { mutableStateOf("08:00") }
     var endTime by remember { mutableStateOf("16:00") }
@@ -209,7 +234,7 @@ fun AddShiftDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Create Shift") },
+        title = { Text(stringResource(R.string.dialog_create_shift)) },
         text = {
             Column(
                 modifier = Modifier
@@ -217,12 +242,12 @@ fun AddShiftDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Shift Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = department, onValueChange = { department = it }, label = { Text("Department") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text("Date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text(stringResource(R.string.shift_title_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = department, onValueChange = { department = it }, label = { Text(stringResource(R.string.department_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text(stringResource(R.string.date_iso_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text("Start") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(value = endTime, onValueChange = { endTime = it }, label = { Text("End") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text(stringResource(R.string.start_label)) }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = endTime, onValueChange = { endTime = it }, label = { Text(stringResource(R.string.end_label)) }, singleLine = true, modifier = Modifier.weight(1f))
                 }
 
                 Row(
@@ -230,12 +255,12 @@ fun AddShiftDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Leave Open / Blank", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.leave_open_blank), style = MaterialTheme.typography.bodyMedium)
                     Switch(checked = leaveOpen, onCheckedChange = { leaveOpen = it })
                 }
 
                 if (!leaveOpen) {
-                    Text("Candidate Staff (${selectedUids.size} selected):", style = MaterialTheme.typography.labelMedium, color = Slate600)
+                    Text(stringResource(R.string.candidate_staff_count, selectedUids.size), style = MaterialTheme.typography.labelMedium, color = Slate600)
                     data.staffDirectory.forEach { member ->
                         val checked = member.uid in selectedUids
                         Row(
@@ -253,7 +278,11 @@ fun AddShiftDialog(
                                 }
                             )
                             Text(
-                                text = "${member.displayName} (${FairnessEngine.formatHours(member.totalHoursWorked)}h)",
+                                text = stringResource(
+                                    R.string.staff_hours_option_format,
+                                    member.displayName,
+                                    FairnessEngine.formatHours(member.totalHoursWorked)
+                                ),
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -265,7 +294,7 @@ fun AddShiftDialog(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Save as Overlap Conflict", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.save_as_overlap_conflict), style = MaterialTheme.typography.bodySmall)
                             Switch(checked = createAsConflict, onCheckedChange = { createAsConflict = it })
                         }
                     }
@@ -280,11 +309,11 @@ fun AddShiftDialog(
                 },
                 enabled = title.isNotBlank() && date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))
             ) {
-                Text("Create Shift")
+                Text(stringResource(R.string.dialog_create_shift))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }
@@ -321,7 +350,7 @@ fun EditShiftDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Shift") },
+        title = { Text(stringResource(R.string.dialog_edit_shift)) },
         text = {
             Column(
                 modifier = Modifier
@@ -329,12 +358,12 @@ fun EditShiftDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = dept, onValueChange = { dept = it }, label = { Text("Department") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text("Date") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text(stringResource(R.string.title_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = dept, onValueChange = { dept = it }, label = { Text(stringResource(R.string.department_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text(stringResource(R.string.date_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = start, onValueChange = { start = it }, label = { Text("Start") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(value = end, onValueChange = { end = it }, label = { Text("End") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = start, onValueChange = { start = it }, label = { Text(stringResource(R.string.start_label)) }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = end, onValueChange = { end = it }, label = { Text(stringResource(R.string.end_label)) }, singleLine = true, modifier = Modifier.weight(1f))
                 }
 
                 ExposedDropdownMenuBox(
@@ -342,10 +371,10 @@ fun EditShiftDialog(
                     onExpandedChange = { staffMenuExpanded = it }
                 ) {
                     OutlinedTextField(
-                        value = assignedName.ifBlank { "Open / Unassigned" },
+                        value = assignedName.ifBlank { stringResource(R.string.open_unassigned) },
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Assigned Staff") },
+                        label = { Text(stringResource(R.string.assigned_staff_label)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = staffMenuExpanded) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -356,7 +385,7 @@ fun EditShiftDialog(
                         onDismissRequest = { staffMenuExpanded = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Open / Unassigned") },
+                            text = { Text(stringResource(R.string.open_unassigned)) },
                             onClick = {
                                 assignedUid = ""
                                 assignedName = ""
@@ -366,7 +395,7 @@ fun EditShiftDialog(
                         )
                         staffDirectory.forEach { member ->
                             DropdownMenuItem(
-                                text = { Text("${member.displayName} (${member.department})") },
+                                text = { Text(stringResource(R.string.staff_dept_option_format, member.displayName, member.department)) },
                                 onClick = {
                                     assignedUid = member.uid
                                     assignedName = member.displayName
@@ -378,7 +407,7 @@ fun EditShiftDialog(
                     }
                 }
 
-                OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text("Fairness / Shift Note") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text(stringResource(R.string.fairness_shift_note_label)) }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -389,10 +418,10 @@ fun EditShiftDialog(
                     onDismiss()
                 }
             ) {
-                Text("Save")
+                Text(stringResource(R.string.save_short))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -451,7 +480,7 @@ fun RequestChangeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Request Shift Change") },
+        title = { Text(stringResource(R.string.dialog_request_change)) },
         text = {
             Column(
                 modifier = Modifier
@@ -467,8 +496,16 @@ fun RequestChangeDialog(
                         value = "${selectedShift.title} (${selectedShift.date} ${selectedShift.startTime}-${selectedShift.endTime})",
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Select Shift") },
-                        supportingText = { Text("Status: ${selectedShift.status.label} • ${selectedShift.assignedName.ifBlank { "Open / Unassigned" }}") },
+                        label = { Text(stringResource(R.string.select_shift_label)) },
+                        supportingText = {
+                            Text(
+                                stringResource(
+                                    R.string.shift_status_support_format,
+                                    stringResource(selectedShift.status.labelRes),
+                                    selectedShift.assignedName.ifBlank { stringResource(R.string.open_unassigned) }
+                                )
+                            )
+                        },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = shiftDropdownExpanded) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -484,7 +521,7 @@ fun RequestChangeDialog(
                                     Column {
                                         Text(option.title, style = MaterialTheme.typography.bodyMedium)
                                         Text(
-                                            text = "${option.date} • ${option.startTime}-${option.endTime} • ${option.status.label}",
+                                            text = "${option.date} • ${option.startTime}-${option.endTime} • ${stringResource(option.status.labelRes)}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Slate600
                                         )
@@ -541,7 +578,7 @@ fun RequestChangeDialog(
                                     }
                                 }
                             },
-                            label = { Text(t.label) }
+                            label = { Text(stringResource(t.labelRes)) }
                         )
                     }
                 }
@@ -554,14 +591,14 @@ fun RequestChangeDialog(
                     )
 
                 if (type == ScheduleChangeType.TIME_CHANGE) {
-                    OutlinedTextField(value = proposedDate, onValueChange = { proposedDate = it }, label = { Text("Proposed Date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = proposedDate, onValueChange = { proposedDate = it }, label = { Text(stringResource(R.string.proposed_date_iso)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = proposedStart, onValueChange = { proposedStart = it }, label = { Text("Start (HH:mm)") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = proposedEnd, onValueChange = { proposedEnd = it }, label = { Text("End (HH:mm)") }, singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = proposedStart, onValueChange = { proposedStart = it }, label = { Text(stringResource(R.string.start_hhmm)) }, singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = proposedEnd, onValueChange = { proposedEnd = it }, label = { Text(stringResource(R.string.end_hhmm)) }, singleLine = true, modifier = Modifier.weight(1f))
                     }
                     if (!isTimeChangeValid) {
                         Text(
-                            text = "Use YYYY-MM-DD date and HH:mm times (at least 15 min duration).",
+                            text = stringResource(R.string.time_change_hint),
                             style = MaterialTheme.typography.labelSmall,
                             color = Rose600
                         )
@@ -571,10 +608,10 @@ fun RequestChangeDialog(
                 if (type == ScheduleChangeType.SWAP) {
                     ExposedDropdownMenuBox(expanded = swapDropdown, onExpandedChange = { swapDropdown = it }) {
                         OutlinedTextField(
-                            value = swapName.ifBlank { "Select teammate for swap" },
+                            value = swapName.ifBlank { stringResource(R.string.select_swap_teammate) },
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Swap With") },
+                            label = { Text(stringResource(R.string.swap_with_label)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = swapDropdown) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -598,8 +635,8 @@ fun RequestChangeDialog(
                 OutlinedTextField(
                     value = reason,
                     onValueChange = { reason = it },
-                    label = { Text("Reason") },
-                    placeholder = { Text("Explain why you are requesting this shift change") },
+                    label = { Text(stringResource(R.string.reason_label)) },
+                    placeholder = { Text(stringResource(R.string.reason_placeholder)) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -622,10 +659,10 @@ fun RequestChangeDialog(
                     isTimeValid &&
                     (type != ScheduleChangeType.SWAP || swapUid.isNotBlank())
             ) {
-                Text("Submit Request")
+                Text(stringResource(R.string.submit_request))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -641,14 +678,16 @@ fun SubmitAvailabilityDialog(
     val nextSevenDays = remember(today) { (1..7).map { today.plusDays(it.toLong()) } }
 
     val selectedDates = remember { mutableStateListOf<String>(today.plusDays(1).format(fmt)) }
-    var shiftTitle by remember { mutableStateOf("Available for Shift") }
+    val defaultAvailTitle = stringResource(R.string.default_avail_title)
+    var shiftTitle by remember { mutableStateOf(defaultAvailTitle) }
     var startTime by remember { mutableStateOf("08:00") }
     var endTime by remember { mutableStateOf("16:00") }
     var notes by remember { mutableStateOf("") }
+    val chipFmt = remember { DateTimeFormatter.ofPattern("EEE M/d", Locale.getDefault()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Submit Shift Availability") },
+        title = { Text(stringResource(R.string.dialog_submit_availability)) },
         text = {
             Column(
                 modifier = Modifier
@@ -656,27 +695,27 @@ fun SubmitAvailabilityDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Select Dates ($defaultDept):", style = MaterialTheme.typography.labelMedium, color = Slate600)
+                Text(stringResource(R.string.select_dates_dept_format, defaultDept), style = MaterialTheme.typography.labelMedium, color = Slate600)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         selectedDates.clear()
                         val mon = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))
                         (0..4).forEach { selectedDates.add(mon.plusDays(it.toLong()).format(fmt)) }
                     }) {
-                        Text("Next Mon–Fri")
+                        Text(stringResource(R.string.next_mon_fri))
                     }
                     OutlinedButton(onClick = {
                         selectedDates.clear()
                         nextSevenDays.forEach { selectedDates.add(it.format(fmt)) }
                     }) {
-                        Text("Next 7 Days")
+                        Text(stringResource(R.string.next_7_days))
                     }
                 }
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     nextSevenDays.forEach { d ->
                         val iso = d.format(fmt)
-                        val label = "${d.dayOfWeek.name.take(3)} ${d.monthValue}/${d.dayOfMonth}"
+                        val label = d.format(chipFmt)
                         FilterChip(
                             selected = iso in selectedDates,
                             onClick = {
@@ -687,12 +726,12 @@ fun SubmitAvailabilityDialog(
                     }
                 }
 
-                OutlinedTextField(value = shiftTitle, onValueChange = { shiftTitle = it }, label = { Text("Preferred Role / Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = shiftTitle, onValueChange = { shiftTitle = it }, label = { Text(stringResource(R.string.preferred_role_title)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text("Start") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(value = endTime, onValueChange = { endTime = it }, label = { Text("End") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text(stringResource(R.string.start_label)) }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = endTime, onValueChange = { endTime = it }, label = { Text(stringResource(R.string.end_label)) }, singleLine = true, modifier = Modifier.weight(1f))
                 }
-                OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text(stringResource(R.string.notes_optional)) }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -703,10 +742,10 @@ fun SubmitAvailabilityDialog(
                 },
                 enabled = selectedDates.isNotEmpty()
             ) {
-                Text("Submit (${selectedDates.size})")
+                Text(stringResource(R.string.submit_count, selectedDates.size))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -720,7 +759,7 @@ fun WeekSlotsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Weekly Shift Slot Templates") },
+        title = { Text(stringResource(R.string.dialog_week_slots)) },
         text = {
             Column(
                 modifier = Modifier
@@ -730,11 +769,11 @@ fun WeekSlotsDialog(
             ) {
                 editable.forEachIndexed { idx, slot ->
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("${slot.label} Slot", style = MaterialTheme.typography.titleSmall, color = Slate900)
+                        Text(stringResource(R.string.slot_label_format, slot.label), style = MaterialTheme.typography.titleSmall, color = Slate900)
                         OutlinedTextField(
                             value = slot.title,
                             onValueChange = { editable[idx] = slot.copy(title = it) },
-                            label = { Text("Shift Title") },
+                            label = { Text(stringResource(R.string.shift_title_label)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -742,14 +781,14 @@ fun WeekSlotsDialog(
                             OutlinedTextField(
                                 value = slot.startTime,
                                 onValueChange = { editable[idx] = slot.copy(startTime = it) },
-                                label = { Text("Start") },
+                                label = { Text(stringResource(R.string.start_label)) },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
                             OutlinedTextField(
                                 value = slot.endTime,
                                 onValueChange = { editable[idx] = slot.copy(endTime = it) },
-                                label = { Text("End") },
+                                label = { Text(stringResource(R.string.end_label)) },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
@@ -766,9 +805,9 @@ fun WeekSlotsDialog(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Slate900, contentColor = PureWhite)
             ) {
-                Text("Save Templates")
+                Text(stringResource(R.string.save_templates))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }

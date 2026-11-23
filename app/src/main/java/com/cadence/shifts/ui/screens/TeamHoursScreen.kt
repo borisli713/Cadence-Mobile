@@ -38,8 +38,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.StaffDirectoryEntry
 import com.cadence.shifts.data.model.UserRole
 import com.cadence.shifts.domain.FairnessEngine
@@ -83,9 +85,9 @@ fun TeamHoursScreen(
     ) {
         item {
             CadenceCard {
-                Text("Team & Hours Fairness Ledger", style = MaterialTheme.typography.headlineSmall, color = Slate900)
+                Text(stringResource(R.string.team_title), style = MaterialTheme.typography.headlineSmall, color = Slate900)
                 Text(
-                    text = "Staff are ordered by lowest utilization ratio first so overlapping or open shifts go to members with fewer hours.",
+                    text = stringResource(R.string.team_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
@@ -102,7 +104,7 @@ fun TeamHoursScreen(
                         ) {
                             Icon(Icons.Rounded.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Add Roster Staff")
+                            Text(stringResource(R.string.btn_add_roster_staff))
                         }
 
                         OutlinedButton(
@@ -112,7 +114,7 @@ fun TeamHoursScreen(
                         ) {
                             Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Load Sample Overlaps & Requests")
+                            Text(stringResource(R.string.btn_load_sample_data))
                         }
                     }
                 }
@@ -127,8 +129,8 @@ fun TeamHoursScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.Groups,
-                    title = "No Team Members Found",
-                    subtitle = "Managers can add roster members or load sample workspace data above."
+                    title = stringResource(R.string.empty_team_title),
+                    subtitle = stringResource(R.string.empty_team_subtitle)
                 )
             }
         } else {
@@ -148,16 +150,21 @@ fun TeamHoursScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(member.displayName, style = MaterialTheme.typography.titleMedium, color = Slate900)
                             Text(
-                                text = "${member.department} • ${if (member.role == UserRole.MANAGER) "Manager" else "Staff"}",
+                                text = "${member.department} • ${stringResource(member.role.labelRes)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = "$pct% Ratio", tone = tone)
+                        StatusPill(label = stringResource(R.string.ratio_percent_format, pct), tone = tone)
                     }
 
                     Text(
-                        text = "Logged: ${FairnessEngine.formatHours(member.totalHoursWorked)}h  •  Scheduled: ${FairnessEngine.formatHours(scheduled)}h  •  Target: ${FairnessEngine.formatHours(member.weeklyHoursTarget)}h",
+                        text = stringResource(
+                            R.string.team_hours_line_format,
+                            FairnessEngine.formatHours(member.totalHoursWorked),
+                            FairnessEngine.formatHours(scheduled),
+                            FairnessEngine.formatHours(member.weeklyHoursTarget)
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = Slate900
                     )
@@ -170,7 +177,7 @@ fun TeamHoursScreen(
                         ) {
                             Icon(Icons.Rounded.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (grantManager) "Promote to Manager" else "Set Role to Staff")
+                            Text(stringResource(if (grantManager) R.string.btn_promote_manager else R.string.btn_set_staff))
                         }
                     }
                 }
@@ -197,34 +204,35 @@ private fun AddRosterStaffDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, dept: String, weeklyTarget: Double, role: UserRole) -> Unit
 ) {
+    val defaultDept = stringResource(R.string.default_dept_operations)
     var name by remember { mutableStateOf("") }
-    var dept by remember { mutableStateOf("Operations") }
+    var dept by remember { mutableStateOf(defaultDept) }
     var targetText by remember { mutableStateOf("40") }
     var role by remember { mutableStateOf(UserRole.STAFF) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Roster Staff Member") },
+        title = { Text(stringResource(R.string.dialog_add_roster_member)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Full Name") },
+                    label = { Text(stringResource(R.string.full_name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = dept,
                     onValueChange = { dept = it },
-                    label = { Text("Department") },
+                    label = { Text(stringResource(R.string.department_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = targetText,
                     onValueChange = { targetText = it.filter { ch -> ch.isDigit() } },
-                    label = { Text("Weekly Hours Target") },
+                    label = { Text(stringResource(R.string.weekly_hours_target_label)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -234,7 +242,7 @@ private fun AddRosterStaffDialog(
                         FilterChip(
                             selected = role == r,
                             onClick = { role = r },
-                            label = { Text(r.value.replaceFirstChar { it.uppercase() }) }
+                            label = { Text(stringResource(r.labelRes)) }
                         )
                     }
                 }
@@ -248,11 +256,11 @@ private fun AddRosterStaffDialog(
                 },
                 enabled = name.isNotBlank() && dept.isNotBlank()
             ) {
-                Text("Add Member")
+                Text(stringResource(R.string.btn_add_member))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }

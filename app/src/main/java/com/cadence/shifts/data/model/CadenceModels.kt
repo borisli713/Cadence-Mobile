@@ -1,10 +1,12 @@
 package com.cadence.shifts.data.model
 
+import androidx.annotation.StringRes
+import com.cadence.shifts.R
 import com.google.firebase.Timestamp
 
-enum class UserRole(val value: String) {
-    STAFF("staff"),
-    MANAGER("manager");
+enum class UserRole(val value: String, @StringRes val labelRes: Int) {
+    STAFF("staff", R.string.role_staff),
+    MANAGER("manager", R.string.role_manager);
 
     companion object {
         fun from(raw: String?): UserRole =
@@ -12,12 +14,12 @@ enum class UserRole(val value: String) {
     }
 }
 
-enum class ShiftStatus(val value: String, val label: String) {
-    SCHEDULED("scheduled", "Scheduled"),
-    OPEN("open", "Open / Blank"),
-    COMPLETED("completed", "Completed"),
-    CONFLICT("conflict", "Overlap Conflict"),
-    PENDING_CHANGE("pending_change", "Pending Change");
+enum class ShiftStatus(val value: String, val label: String, @StringRes val labelRes: Int) {
+    SCHEDULED("scheduled", "Scheduled", R.string.status_scheduled),
+    OPEN("open", "Open / Blank", R.string.status_open),
+    COMPLETED("completed", "Completed", R.string.status_completed),
+    CONFLICT("conflict", "Overlap Conflict", R.string.status_conflict),
+    PENDING_CHANGE("pending_change", "Pending Change", R.string.status_pending_change);
 
     companion object {
         fun from(raw: String?): ShiftStatus =
@@ -25,11 +27,11 @@ enum class ShiftStatus(val value: String, val label: String) {
     }
 }
 
-enum class ScheduleChangeType(val value: String, val label: String) {
-    TIME_CHANGE("time_change", "Time Change"),
-    SWAP("swap", "Swap Assignee"),
-    DROP("drop", "Drop Shift"),
-    CLAIM("claim", "Claim Open Shift");
+enum class ScheduleChangeType(val value: String, val label: String, @StringRes val labelRes: Int) {
+    TIME_CHANGE("time_change", "Time Change", R.string.change_type_time_change),
+    SWAP("swap", "Swap Assignee", R.string.change_type_swap),
+    DROP("drop", "Drop Shift", R.string.change_type_drop),
+    CLAIM("claim", "Claim Open Shift", R.string.change_type_claim);
 
     companion object {
         fun from(raw: String?): ScheduleChangeType =
@@ -37,10 +39,10 @@ enum class ScheduleChangeType(val value: String, val label: String) {
     }
 }
 
-enum class ApprovalStatus(val value: String, val label: String) {
-    PENDING("pending", "Pending"),
-    APPROVED("approved", "Approved"),
-    DENIED("denied", "Denied");
+enum class ApprovalStatus(val value: String, val label: String, @StringRes val labelRes: Int) {
+    PENDING("pending", "Pending", R.string.approval_pending),
+    APPROVED("approved", "Approved", R.string.approval_approved),
+    DENIED("denied", "Denied", R.string.approval_denied);
 
     companion object {
         fun from(raw: String?): ApprovalStatus =
@@ -48,10 +50,10 @@ enum class ApprovalStatus(val value: String, val label: String) {
     }
 }
 
-enum class ShiftReportStatus(val value: String, val label: String) {
-    SUBMITTED("submitted", "Submitted"),
-    VERIFIED("verified", "Verified"),
-    FLAGGED("flagged", "Flagged");
+enum class ShiftReportStatus(val value: String, val label: String, @StringRes val labelRes: Int) {
+    SUBMITTED("submitted", "Submitted", R.string.report_status_submitted),
+    VERIFIED("verified", "Verified", R.string.report_status_verified),
+    FLAGGED("flagged", "Flagged", R.string.report_status_flagged);
 
     companion object {
         fun from(raw: String?): ShiftReportStatus =
@@ -59,14 +61,14 @@ enum class ShiftReportStatus(val value: String, val label: String) {
     }
 }
 
-enum class NotificationCategory(val value: String, val label: String) {
-    SHIFT_APPROVED("shift_approved", "Approved"),
-    SHIFT_DENIED("shift_denied", "Denied"),
-    FAIRNESS_REBALANCED("fairness_rebalanced", "Fairness Rebalance"),
-    REPORT_VERIFIED("report_verified", "Report Verified"),
-    SHIFT_ASSIGNED("shift_assigned", "Shift Assigned"),
-    TIME_OFF_APPROVED("time_off_approved", "Time Off Approved"),
-    TIME_OFF_DENIED("time_off_denied", "Time Off Denied");
+enum class NotificationCategory(val value: String, val label: String, @StringRes val labelRes: Int) {
+    SHIFT_APPROVED("shift_approved", "Approved", R.string.notif_cat_shift_approved),
+    SHIFT_DENIED("shift_denied", "Denied", R.string.notif_cat_shift_denied),
+    FAIRNESS_REBALANCED("fairness_rebalanced", "Fairness Rebalance", R.string.notif_cat_fairness_rebalanced),
+    REPORT_VERIFIED("report_verified", "Report Verified", R.string.notif_cat_report_verified),
+    SHIFT_ASSIGNED("shift_assigned", "Shift Assigned", R.string.notif_cat_shift_assigned),
+    TIME_OFF_APPROVED("time_off_approved", "Time Off Approved", R.string.notif_cat_time_off_approved),
+    TIME_OFF_DENIED("time_off_denied", "Time Off Denied", R.string.notif_cat_time_off_denied);
 
     companion object {
         fun from(raw: String?): NotificationCategory =
@@ -74,9 +76,9 @@ enum class NotificationCategory(val value: String, val label: String) {
     }
 }
 
-enum class SubmissionStatus(val value: String, val label: String) {
-    SUBMITTED("submitted", "Submitted"),
-    WITHDRAWN("withdrawn", "Withdrawn");
+enum class SubmissionStatus(val value: String, val label: String, @StringRes val labelRes: Int) {
+    SUBMITTED("submitted", "Submitted", R.string.sub_status_submitted),
+    WITHDRAWN("withdrawn", "Withdrawn", R.string.sub_status_withdrawn);
 
     companion object {
         fun from(raw: String?): SubmissionStatus =

@@ -42,11 +42,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ApprovalStatus
 import com.cadence.shifts.data.model.ScheduleChangeRequest
 import com.cadence.shifts.data.model.ScheduleChangeType
@@ -74,10 +78,10 @@ import com.google.firebase.Timestamp
 import java.text.DateFormat
 import java.util.Locale
 
-private enum class ShiftHistoryFilter(val label: String, val tag: String) {
-    ALL("All", "history_filter_all"),
-    APPROVED("Approved", "history_filter_approved"),
-    REJECTED("Rejected", "history_filter_rejected")
+private enum class ShiftHistoryFilter(@StringRes val labelRes: Int, val tag: String) {
+    ALL(R.string.filter_all, "history_filter_all"),
+    APPROVED(R.string.approval_approved, "history_filter_approved"),
+    REJECTED(R.string.filter_rejected, "history_filter_rejected")
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -85,6 +89,7 @@ private enum class ShiftHistoryFilter(val label: String, val tag: String) {
 fun ShiftHistoryScreen(
     data: WorkspaceUiData
 ) {
+    val context = LocalContext.current
     var filter by remember { mutableStateOf(ShiftHistoryFilter.ALL) }
     var searchQuery by remember { mutableStateOf("") }
 
@@ -104,7 +109,7 @@ fun ShiftHistoryScreen(
         resolvedRequests.count { it.status == ApprovalStatus.DENIED }
     }
 
-    val filteredHistory = remember(resolvedRequests, filter, searchQuery) {
+    val filteredHistory = remember(resolvedRequests, filter, searchQuery, context) {
         val q = searchQuery.trim().lowercase()
         resolvedRequests.filter { req ->
             val matchesStatus = when (filter) {
@@ -117,6 +122,7 @@ fun ShiftHistoryScreen(
                 req.requesterName.lowercase().contains(q) ||
                 req.reviewedByName.lowercase().contains(q) ||
                 req.type.label.lowercase().contains(q) ||
+                context.getString(req.type.labelRes).lowercase().contains(q) ||
                 req.reason.lowercase().contains(q) ||
                 req.reviewNote.lowercase().contains(q) ||
                 req.proposedDate.contains(q) ||
@@ -152,16 +158,12 @@ fun ShiftHistoryScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "Shift History",
+                                text = stringResource(R.string.nav_history),
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = Slate900
                             )
                             Text(
-                                text = if (data.isManager) {
-                                    "Audit log of team shift requests approved or rejected across Web & Android."
-                                } else {
-                                    "Complete record of your past approved and rejected shift requests."
-                                },
+                                text = stringResource(if (data.isManager) R.string.history_subtitle_manager else R.string.history_subtitle_staff),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Slate600
                             )
@@ -178,12 +180,12 @@ fun ShiftHistoryScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Sync,
-                                    contentDescription = "Synced with Web App",
+                                    contentDescription = stringResource(R.string.synced_with_web),
                                     tint = Blue700,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "Live Sync",
+                                    text = stringResource(R.string.live_sync),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Blue700
                                 )
@@ -195,7 +197,7 @@ fun ShiftHistoryScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Search shift, staff, reviewer, or date") },
+                    label = { Text(stringResource(R.string.search_history_label)) },
                     leadingIcon = {
                         Icon(Icons.Rounded.Search, contentDescription = null)
                     },
@@ -206,7 +208,7 @@ fun ShiftHistoryScreen(
                             exit = fadeOut()
                         ) {
                             IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Rounded.Clear, contentDescription = "Clear search")
+                                Icon(Icons.Rounded.Clear, contentDescription = stringResource(R.string.clear_search))
                             }
                         }
                     },
@@ -226,7 +228,7 @@ fun ShiftHistoryScreen(
                         FilterChip(
                             selected = filter == option,
                             onClick = { filter = option },
-                            label = { Text("${option.label} ($count)") },
+                            label = { Text(stringResource(R.string.filter_count_format, stringResource(option.labelRes), count)) },
                             modifier = Modifier.testTag(option.tag)
                         )
                     }
@@ -241,17 +243,17 @@ fun ShiftHistoryScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 KpiTile(
-                    title = "Approved Requests",
+                    title = stringResource(R.string.kpi_approved_requests),
                     value = "$approvedCount",
-                    subtitle = "Applied to schedule",
+                    subtitle = stringResource(R.string.applied_to_schedule),
                     icon = Icons.Rounded.CheckCircle,
                     tone = BadgeTone.SUCCESS,
                     modifier = Modifier.weight(1f)
                 )
                 KpiTile(
-                    title = "Rejected Requests",
+                    title = stringResource(R.string.kpi_rejected_requests),
                     value = "$rejectedCount",
-                    subtitle = "Declined by manager",
+                    subtitle = stringResource(R.string.declined_by_manager),
                     icon = Icons.Rounded.Cancel,
                     tone = BadgeTone.DANGER,
                     modifier = Modifier.weight(1f)
@@ -264,14 +266,14 @@ fun ShiftHistoryScreen(
                 EmptyStatePanel(
                     icon = Icons.Rounded.History,
                     title = if (resolvedRequests.isEmpty()) {
-                        "No Shift History Yet"
+                        stringResource(R.string.empty_history_none_title)
                     } else {
-                        "No Matching History Entries"
+                        stringResource(R.string.empty_history_filtered_title)
                     },
                     subtitle = if (resolvedRequests.isEmpty()) {
-                        "Approved and rejected shift change, swap, drop, and claim requests will appear here with timestamps once reviewed."
+                        stringResource(R.string.empty_history_none_subtitle)
                     } else {
-                        "Try adjusting your status filter or clearing the search query."
+                        stringResource(R.string.empty_history_filtered_subtitle)
                     }
                 )
             }
@@ -289,7 +291,7 @@ fun ShiftHistoryScreen(
 @Composable
 private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
     val isApproved = req.status == ApprovalStatus.APPROVED
-    val statusLabel = if (isApproved) "Approved" else "Rejected"
+    val statusLabel = stringResource(if (isApproved) R.string.approval_approved else R.string.status_rejected)
     val statusTone = if (isApproved) BadgeTone.SUCCESS else BadgeTone.DANGER
     val accentBg = if (isApproved) Emerald50.copy(alpha = 0.4f) else Rose50.copy(alpha = 0.4f)
     val accentBorder = if (isApproved) Emerald600.copy(alpha = 0.3f) else Rose600.copy(alpha = 0.3f)
@@ -300,11 +302,12 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
         ScheduleChangeType.CLAIM -> BadgeTone.NEUTRAL
     }
 
-    val decisionTimestamp = remember(req.updatedAt, req.createdAt) {
-        formatFirestoreTimestamp(req.updatedAt ?: req.createdAt)
+    val pendingText = stringResource(R.string.pending_timestamp)
+    val decisionTimestamp = remember(req.updatedAt, req.createdAt, pendingText) {
+        formatFirestoreTimestamp(req.updatedAt ?: req.createdAt, pendingText)
     }
-    val submittedTimestamp = remember(req.createdAt) {
-        formatFirestoreTimestamp(req.createdAt)
+    val submittedTimestamp = remember(req.createdAt, pendingText) {
+        formatFirestoreTimestamp(req.createdAt, pendingText)
     }
 
     CadenceCard(
@@ -327,7 +330,7 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
                     color = Slate900
                 )
                 Text(
-                    text = "Requested by ${req.requesterName}",
+                    text = stringResource(R.string.requested_by_format, req.requesterName),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
@@ -336,7 +339,7 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                StatusPill(label = req.type.label, tone = typeTone)
+                StatusPill(label = stringResource(req.type.labelRes), tone = typeTone)
                 StatusPill(label = statusLabel, tone = statusTone)
             }
         }
@@ -352,7 +355,12 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = "Original: ${req.currentDate}  •  ${req.currentStartTime}–${req.currentEndTime}",
+                    text = stringResource(
+                        R.string.original_schedule_format,
+                        req.currentDate,
+                        req.currentStartTime,
+                        req.currentEndTime
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = Slate600
                 )
@@ -360,7 +368,13 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
                     " → ${req.proposedAssigneeName}"
                 } else ""
                 Text(
-                    text = "Requested: ${req.proposedDate}  •  ${req.proposedStartTime}–${req.proposedEndTime}$proposedSuffix",
+                    text = stringResource(
+                        R.string.requested_schedule_format,
+                        req.proposedDate,
+                        req.proposedStartTime,
+                        req.proposedEndTime,
+                        proposedSuffix
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = Slate900
                 )
@@ -369,18 +383,18 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
 
         if (req.reason.isNotBlank()) {
             Text(
-                text = "Reason: ${req.reason}",
+                text = stringResource(R.string.reason_line_format, req.reason),
                 style = MaterialTheme.typography.bodySmall,
                 color = Slate900
             )
         }
 
         if (req.reviewedByName.isNotBlank() || req.reviewNote.isNotBlank()) {
-            val reviewer = req.reviewedByName.ifBlank { "Manager" }
+            val reviewer = req.reviewedByName.ifBlank { stringResource(R.string.role_manager) }
             val noteText = if (req.reviewNote.isNotBlank()) {
-                "Reviewed by $reviewer: \"${req.reviewNote}\""
+                stringResource(R.string.reviewed_by_note_format, reviewer, req.reviewNote)
             } else {
-                "Reviewed by $reviewer"
+                stringResource(R.string.reviewed_by_format, reviewer)
             }
             Text(
                 text = noteText,
@@ -403,12 +417,12 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
-                    text = "$statusLabel: $decisionTimestamp",
+                    text = stringResource(R.string.timestamp_label_format, statusLabel, decisionTimestamp),
                     style = MaterialTheme.typography.labelSmall,
                     color = Slate900
                 )
             }
-            if (submittedTimestamp != "Pending timestamp") {
+            if (submittedTimestamp != pendingText) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -420,7 +434,7 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "Submitted: $submittedTimestamp",
+                        text = stringResource(R.string.submitted_time_format, submittedTimestamp),
                         style = MaterialTheme.typography.labelSmall,
                         color = Slate600
                     )
@@ -430,8 +444,8 @@ private fun ShiftHistoryItemCard(req: ScheduleChangeRequest) {
     }
 }
 
-internal fun formatFirestoreTimestamp(timestamp: Timestamp?): String {
-    if (timestamp == null) return "Pending timestamp"
+internal fun formatFirestoreTimestamp(timestamp: Timestamp?, fallback: String = "Pending timestamp"): String {
+    if (timestamp == null) return fallback
     val formatter = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
     return formatter.format(timestamp.toDate())
 }

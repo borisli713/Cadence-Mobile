@@ -16,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.StaffDirectoryEntry
 import com.cadence.shifts.domain.FairnessEngine
@@ -56,12 +58,12 @@ fun StaffHoursBalanceChart(
         ) {
             Column {
                 Text(
-                    text = "Staff Hours Balance vs Weekly Target",
+                    text = stringResource(R.string.chart_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = Slate900
                 )
                 Text(
-                    text = "Emerald = verified logged • Blue = scheduled • Dashed marker = weekly target",
+                    text = stringResource(R.string.chart_legend),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
@@ -70,7 +72,7 @@ fun StaffHoursBalanceChart(
 
         if (rows.isEmpty()) {
             Text(
-                text = "No staff roster entries available yet.",
+                text = stringResource(R.string.chart_empty),
                 style = MaterialTheme.typography.bodySmall,
                 color = Slate600,
                 modifier = Modifier.padding(vertical = 8.dp)
@@ -92,7 +94,12 @@ fun StaffHoursBalanceChart(
                                 color = Slate900
                             )
                             Text(
-                                text = "${FairnessEngine.formatHours(row.logged)}h + ${FairnessEngine.formatHours(row.scheduled)}h / ${row.target.toInt()}h",
+                                text = stringResource(
+                                    R.string.chart_hours_format,
+                                    FairnessEngine.formatHours(row.logged),
+                                    FairnessEngine.formatHours(row.scheduled),
+                                    row.target.toInt()
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Slate600
                             )

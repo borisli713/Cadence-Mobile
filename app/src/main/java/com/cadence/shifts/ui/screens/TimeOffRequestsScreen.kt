@@ -36,10 +36,13 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ApprovalStatus
 import com.cadence.shifts.data.model.TimeOffRequest
 import com.cadence.shifts.ui.components.BadgeTone
@@ -55,11 +58,11 @@ import com.cadence.shifts.ui.viewmodel.WorkspaceUiData
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-private enum class TimeOffFilter(val label: String) {
-    PENDING("Pending"),
-    APPROVED("Approved"),
-    DENIED("Denied"),
-    ALL("All")
+private enum class TimeOffFilter(@StringRes val labelRes: Int) {
+    PENDING(R.string.approval_pending),
+    APPROVED(R.string.approval_approved),
+    DENIED(R.string.approval_denied),
+    ALL(R.string.filter_all)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -99,9 +102,9 @@ fun TimeOffRequestsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Time Off Requests", style = MaterialTheme.typography.headlineSmall, color = Slate900)
+                        Text(stringResource(R.string.time_off_title), style = MaterialTheme.typography.headlineSmall, color = Slate900)
                         Text(
-                            text = "Approved time off automatically excludes staff from fairness auto-scheduling on those dates.",
+                            text = stringResource(R.string.time_off_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
@@ -113,7 +116,7 @@ fun TimeOffRequestsScreen(
                     ) {
                         Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Request")
+                        Text(stringResource(R.string.btn_request))
                     }
                 }
 
@@ -122,7 +125,7 @@ fun TimeOffRequestsScreen(
                         FilterChip(
                             selected = filter == item,
                             onClick = { filter = item },
-                            label = { Text(item.label) }
+                            label = { Text(stringResource(item.labelRes)) }
                         )
                     }
                 }
@@ -133,8 +136,8 @@ fun TimeOffRequestsScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.EventBusy,
-                    title = "No Time Off Requests",
-                    subtitle = "Tap Request above to submit dates when you are unavailable to work."
+                    title = stringResource(R.string.empty_time_off_title),
+                    subtitle = stringResource(R.string.empty_time_off_subtitle)
                 )
             }
         } else {
@@ -159,12 +162,18 @@ fun TimeOffRequestsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(req.staffName, style = MaterialTheme.typography.titleMedium, color = Slate900)
                             Text(
-                                text = "${req.startDate} to ${req.endDate} ($days day${if (days == 1L) "" else "s"}) • ${req.department}",
+                                text = stringResource(
+                                    if (days == 1L) R.string.time_off_dates_singular_format else R.string.time_off_dates_plural_format,
+                                    req.startDate,
+                                    req.endDate,
+                                    days,
+                                    req.department
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Slate600
                             )
                         }
-                        StatusPill(label = req.status.label, tone = tone)
+                        StatusPill(label = stringResource(req.status.labelRes), tone = tone)
                     }
 
                     Text(
@@ -175,7 +184,7 @@ fun TimeOffRequestsScreen(
 
                     if (req.reviewNote.isNotBlank()) {
                         Text(
-                            text = "Note (${req.reviewedByName}): ${req.reviewNote}",
+                            text = stringResource(R.string.note_reviewer_format, req.reviewedByName, req.reviewNote),
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
@@ -189,7 +198,7 @@ fun TimeOffRequestsScreen(
                             ) {
                                 Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Withdraw Request")
+                                Text(stringResource(R.string.btn_withdraw_request))
                             }
                         }
 
@@ -198,7 +207,7 @@ fun TimeOffRequestsScreen(
                             OutlinedTextField(
                                 value = note,
                                 onValueChange = { reviewNotes[req.id] = it },
-                                label = { Text("Optional review note") },
+                                label = { Text(stringResource(R.string.optional_review_note)) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -214,7 +223,7 @@ fun TimeOffRequestsScreen(
                                 ) {
                                     Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Approve")
+                                    Text(stringResource(R.string.btn_approve))
                                 }
                                 OutlinedButton(
                                     onClick = { onDecideTimeOff(req, ApprovalStatus.DENIED, note) },
@@ -224,7 +233,7 @@ fun TimeOffRequestsScreen(
                                 ) {
                                     Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Deny")
+                                    Text(stringResource(R.string.btn_deny))
                                 }
                             }
                         }
@@ -263,27 +272,27 @@ private fun RequestTimeOffDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Request Time Off") },
+        title = { Text(stringResource(R.string.dialog_request_time_off)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = startDate,
                     onValueChange = { startDate = it },
-                    label = { Text("Start Date (YYYY-MM-DD)") },
+                    label = { Text(stringResource(R.string.start_date_iso)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = endDate,
                     onValueChange = { endDate = it },
-                    label = { Text("End Date (YYYY-MM-DD)") },
+                    label = { Text(stringResource(R.string.end_date_iso)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = reason,
                     onValueChange = { reason = it },
-                    label = { Text("Reason") },
+                    label = { Text(stringResource(R.string.reason_label)) },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
@@ -295,11 +304,11 @@ private fun RequestTimeOffDialog(
                 onClick = { onSubmit(startDate, endDate, reason) },
                 enabled = validDates && reason.isNotBlank()
             ) {
-                Text("Submit Request")
+                Text(stringResource(R.string.submit_request))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }

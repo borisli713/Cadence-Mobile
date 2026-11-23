@@ -47,9 +47,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.annotation.StringRes
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ScheduleChangeType
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.ShiftStatus
@@ -79,19 +82,20 @@ import com.cadence.shifts.util.CalendarExportHelper
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-private enum class ScheduleSubTab(val label: String) {
-    CALENDAR("Calendar"),
-    TABLE("Shift Table"),
-    SUBMISSIONS("Submissions")
+private enum class ScheduleSubTab(@StringRes val labelRes: Int) {
+    CALENDAR(R.string.subtab_calendar),
+    TABLE(R.string.subtab_shift_table),
+    SUBMISSIONS(R.string.subtab_submissions)
 }
 
-private enum class ShiftTableFilter(val label: String) {
-    ALL("All"),
-    MINE("Mine"),
-    OPEN("Open"),
-    OVERLAPS("Overlaps"),
-    COMPLETED("Completed")
+private enum class ShiftTableFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.filter_all),
+    MINE(R.string.filter_mine),
+    OPEN(R.string.filter_open),
+    OVERLAPS(R.string.filter_overlaps),
+    COMPLETED(R.string.status_completed)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -157,9 +161,9 @@ fun ScheduleFairnessScreen(
         // Header + SubTab + Toolbars
         item {
             CadenceCard {
-                Text("Schedule & Fairness", style = MaterialTheme.typography.headlineSmall, color = Slate900)
+                Text(stringResource(R.string.schedule_fairness_title), style = MaterialTheme.typography.headlineSmall, color = Slate900)
                 Text(
-                    text = "Balanced overlap resolution, weekly shift templates, staff availability matching, and calendar export.",
+                    text = stringResource(R.string.schedule_fairness_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
@@ -169,7 +173,7 @@ fun ScheduleFairnessScreen(
                         FilterChip(
                             selected = subTab == tab,
                             onClick = { subTab = tab },
-                            label = { Text(tab.label) }
+                            label = { Text(stringResource(tab.labelRes)) }
                         )
                     }
                 }
@@ -184,7 +188,7 @@ fun ScheduleFairnessScreen(
                     ) {
                         Icon(Icons.Rounded.EventAvailable, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Submit Availability")
+                        Text(stringResource(R.string.btn_submit_availability))
                     }
 
                     OutlinedButton(
@@ -193,7 +197,7 @@ fun ScheduleFairnessScreen(
                     ) {
                         Icon(Icons.Rounded.Today, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("My Schedule (${data.myAssignedShifts.size})")
+                        Text(stringResource(R.string.btn_my_schedule_count, data.myAssignedShifts.size))
                     }
 
                     OutlinedButton(
@@ -206,7 +210,7 @@ fun ScheduleFairnessScreen(
                     ) {
                         Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Export .ics")
+                        Text(stringResource(R.string.btn_export_ics))
                     }
                 }
 
@@ -223,7 +227,7 @@ fun ScheduleFairnessScreen(
                         ) {
                             Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Generate Week")
+                            Text(stringResource(R.string.btn_generate_week))
                         }
 
                         Button(
@@ -234,7 +238,7 @@ fun ScheduleFairnessScreen(
                         ) {
                             Icon(Icons.Rounded.Balance, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Arrange Overlaps (${data.conflictShiftsCount})")
+                            Text(stringResource(R.string.btn_arrange_overlaps_count, data.conflictShiftsCount))
                         }
 
                         FilledTonalButton(
@@ -242,19 +246,19 @@ fun ScheduleFairnessScreen(
                             enabled = busyAction == null && openShiftsCount > 0,
                             modifier = Modifier.testTag("assign_open_button")
                         ) {
-                            Text("Assign Open ($openShiftsCount)")
+                            Text(stringResource(R.string.btn_assign_open_count, openShiftsCount))
                         }
 
                         OutlinedButton(onClick = { showAddShiftDialog = true }) {
                             Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Add Shift")
+                            Text(stringResource(R.string.btn_add_shift))
                         }
 
                         OutlinedButton(onClick = { showWeekSlotsDialog = true }) {
                             Icon(Icons.Rounded.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Week Slots")
+                            Text(stringResource(R.string.btn_week_slots))
                         }
                     }
                 }
@@ -275,13 +279,13 @@ fun ScheduleFairnessScreen(
                                 IconButton(onClick = {
                                     weekAnchorDate = if (calendarIsMonth) weekAnchorDate.minusMonths(1) else weekAnchorDate.minusWeeks(1)
                                 }) {
-                                    Icon(Icons.Rounded.ChevronLeft, contentDescription = "Previous period")
+                                    Icon(Icons.Rounded.ChevronLeft, contentDescription = stringResource(R.string.cd_previous_period))
                                 }
                                 Text(
                                     text = if (calendarIsMonth) {
-                                        "${weekAnchorDate.month.name.take(3)} ${weekAnchorDate.year}"
+                                        weekAnchorDate.format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.getDefault()))
                                     } else {
-                                        "Week of ${weekAnchorDate.format(isoFmt)}"
+                                        stringResource(R.string.week_of_format, weekAnchorDate.format(isoFmt))
                                     },
                                     style = MaterialTheme.typography.titleMedium,
                                     color = Slate900
@@ -289,17 +293,17 @@ fun ScheduleFairnessScreen(
                                 IconButton(onClick = {
                                     weekAnchorDate = if (calendarIsMonth) weekAnchorDate.plusMonths(1) else weekAnchorDate.plusWeeks(1)
                                 }) {
-                                    Icon(Icons.Rounded.ChevronRight, contentDescription = "Next period")
+                                    Icon(Icons.Rounded.ChevronRight, contentDescription = stringResource(R.string.cd_next_period))
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = {
                                     weekAnchorDate = FairnessEngine.getMondayOfWeek(LocalDate.now())
-                                }) { Text("Today") }
+                                }) { Text(stringResource(R.string.today_label)) }
                                 FilterChip(
                                     selected = calendarIsMonth,
                                     onClick = { calendarIsMonth = !calendarIsMonth },
-                                    label = { Text(if (calendarIsMonth) "Month" else "Week") }
+                                    label = { Text(stringResource(if (calendarIsMonth) R.string.month_label else R.string.week_label)) }
                                 )
                             }
                         }
@@ -311,7 +315,7 @@ fun ScheduleFairnessScreen(
                             FilterChip(
                                 selected = myShiftsOnly,
                                 onClick = { myShiftsOnly = !myShiftsOnly },
-                                label = { Text("My Shifts Only (${data.myAssignedShifts.size})") },
+                                label = { Text(stringResource(R.string.my_shifts_only_count, data.myAssignedShifts.size)) },
                                 modifier = Modifier.testTag("calendar_my_shifts_chip")
                             )
                         }
@@ -345,13 +349,15 @@ fun ScheduleFairnessScreen(
                                                 .padding(10.dp),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
+                                            val dayName = day.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault()))
+                                            val dayHeaderBase = stringResource(R.string.calendar_day_header_format, dayName, dayIso)
                                             Text(
-                                                text = "${day.dayOfWeek.name.take(3)} • $dayIso" + if (isToday) " (Today)" else "",
+                                                text = if (isToday) "$dayHeaderBase ${stringResource(R.string.today_suffix)}" else dayHeaderBase,
                                                 style = MaterialTheme.typography.titleSmall,
                                                 color = Slate900
                                             )
                                             if (dayShifts.isEmpty()) {
-                                                Text("No shifts scheduled", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                                Text(stringResource(R.string.no_shifts_scheduled), style = MaterialTheme.typography.bodySmall, color = Slate600)
                                             } else {
                                                 dayShifts.forEach { shift ->
                                                     val (pillBg, pillFg) = when (shift.status) {
@@ -376,13 +382,13 @@ fun ScheduleFairnessScreen(
                                                             Column(modifier = Modifier.weight(1f)) {
                                                                 Text(shift.title, style = MaterialTheme.typography.labelLarge, color = pillFg)
                                                                 Text(
-                                                                    text = "${shift.startTime}–${shift.endTime} • ${shift.assignedName.ifBlank { "Open / Blank" }}",
+                                                                    text = "${shift.startTime}–${shift.endTime} • ${shift.assignedName.ifBlank { stringResource(R.string.open_blank) }}",
                                                                     style = MaterialTheme.typography.labelSmall,
                                                                     color = Slate600
                                                                 )
                                                             }
                                                             StatusPill(
-                                                                label = shift.status.label,
+                                                                label = stringResource(shift.status.labelRes),
                                                                 tone = when (shift.status) {
                                                                     ShiftStatus.CONFLICT -> BadgeTone.DANGER
                                                                     ShiftStatus.OPEN -> BadgeTone.VIOLET
@@ -410,7 +416,7 @@ fun ScheduleFairnessScreen(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            label = { Text("Search shifts, staff, or department") },
+                            label = { Text(stringResource(R.string.search_team_shifts_label)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -419,7 +425,7 @@ fun ScheduleFairnessScreen(
                                 FilterChip(
                                     selected = tableFilter == f,
                                     onClick = { tableFilter = f },
-                                    label = { Text(f.label) }
+                                    label = { Text(stringResource(f.labelRes)) }
                                 )
                             }
                         }
@@ -430,8 +436,8 @@ fun ScheduleFairnessScreen(
                     item {
                         EmptyStatePanel(
                             icon = Icons.Rounded.CalendarMonth,
-                            title = "No Shifts Match Filter",
-                            subtitle = "Adjust filters or create/generate shifts."
+                            title = stringResource(R.string.empty_shifts_filter_title),
+                            subtitle = stringResource(R.string.empty_shifts_filter_subtitle)
                         )
                     }
                 } else {
@@ -457,10 +463,10 @@ fun ScheduleFairnessScreen(
                                         color = Slate600
                                     )
                                 }
-                                StatusPill(label = shift.status.label, tone = tone)
+                                StatusPill(label = stringResource(shift.status.labelRes), tone = tone)
                             }
                             Text(
-                                text = "${shift.assignedName.ifBlank { "Open / Unassigned" }} • ${shift.department}",
+                                text = "${shift.assignedName.ifBlank { stringResource(R.string.open_unassigned) }} • ${shift.department}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Slate900
                             )
@@ -477,8 +483,8 @@ fun ScheduleFairnessScreen(
                     item {
                         EmptyStatePanel(
                             icon = Icons.Rounded.EventAvailable,
-                            title = "No Shift Availability Submissions",
-                            subtitle = "Staff submit preferred dates & shift windows here so Generate Week fills slots transparently."
+                            title = stringResource(R.string.empty_submissions_title),
+                            subtitle = stringResource(R.string.empty_submissions_subtitle)
                         )
                     }
                 } else {
@@ -490,11 +496,29 @@ fun ScheduleFairnessScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("${sub.staffName} — ${sub.shiftTitle.ifBlank { "Shift Availability" }}", style = MaterialTheme.typography.titleSmall, color = Slate900)
-                                    Text("${sub.date}  •  ${sub.startTime}–${sub.endTime}  •  ${sub.department}", style = MaterialTheme.typography.labelSmall, color = Slate600)
+                                    Text(
+                                        text = stringResource(
+                                            R.string.submission_header_format,
+                                            sub.staffName,
+                                            sub.shiftTitle.ifBlank { stringResource(R.string.availability_default_title) }
+                                        ),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = Slate900
+                                    )
+                                    Text(
+                                        text = stringResource(
+                                            R.string.submission_meta_format,
+                                            sub.date,
+                                            sub.startTime,
+                                            sub.endTime,
+                                            sub.department
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Slate600
+                                    )
                                 }
                                 StatusPill(
-                                    label = sub.status.label,
+                                    label = stringResource(sub.status.labelRes),
                                     tone = if (sub.status == SubmissionStatus.SUBMITTED) BadgeTone.SUCCESS else BadgeTone.NEUTRAL
                                 )
                             }
@@ -506,7 +530,7 @@ fun ScheduleFairnessScreen(
                                     onClick = { onWithdrawSubmission(sub.id) },
                                     enabled = busyAction == null
                                 ) {
-                                    Text("Withdraw Submission")
+                                    Text(stringResource(R.string.btn_withdraw_submission))
                                 }
                             }
                         }

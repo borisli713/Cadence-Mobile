@@ -31,7 +31,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.NotificationCategory
 import com.cadence.shifts.ui.components.BadgeTone
 import com.cadence.shifts.ui.components.CadenceCard
@@ -67,9 +69,9 @@ fun NotificationsScreen(
     ) {
         item {
             CadenceCard {
-                Text("Push Notification Center", style = MaterialTheme.typography.headlineSmall, color = Slate900)
+                Text(stringResource(R.string.notifications_title), style = MaterialTheme.typography.headlineSmall, color = Slate900)
                 Text(
-                    text = "Real-time background delivery when shifts are approved, denied, reassigned by fairness, or reports are verified.",
+                    text = stringResource(R.string.notifications_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
@@ -78,17 +80,17 @@ fun NotificationsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     StatusPill(
-                        label = if (bgSyncActive) "Background Sync: Active" else "Background Sync: Paused",
+                        label = stringResource(if (bgSyncActive) R.string.bg_sync_active else R.string.bg_sync_paused),
                         tone = if (bgSyncActive) BadgeTone.INFO else BadgeTone.NEUTRAL
                     )
                     StatusPill(
-                        label = if (isUnrestrictedBattery) "Battery: Unrestricted" else "Battery: Restricted",
+                        label = stringResource(if (isUnrestrictedBattery) R.string.battery_unrestricted else R.string.battery_restricted),
                         tone = if (isUnrestrictedBattery) BadgeTone.SUCCESS else BadgeTone.WARNING
                     )
                 }
                 if (!isUnrestrictedBattery) {
                     Text(
-                        text = "Android battery optimization may delay notifications until you open the app. Set battery usage to Unrestricted for instant delivery.",
+                        text = stringResource(R.string.battery_warning_inline),
                         style = MaterialTheme.typography.bodySmall,
                         color = Amber600
                     )
@@ -105,7 +107,7 @@ fun NotificationsScreen(
                         ) {
                             Icon(Icons.Rounded.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Enable Device Alerts")
+                            Text(stringResource(R.string.btn_enable_device_alerts))
                         }
                     }
                     if (!isUnrestrictedBattery) {
@@ -115,7 +117,7 @@ fun NotificationsScreen(
                         ) {
                             Icon(Icons.Rounded.BatteryAlert, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Set Battery to Unrestricted")
+                            Text(stringResource(R.string.btn_set_battery_unrestricted))
                         }
                     }
                     OutlinedButton(
@@ -125,7 +127,7 @@ fun NotificationsScreen(
                     ) {
                         Icon(Icons.Rounded.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Test Alert")
+                        Text(stringResource(R.string.btn_test_alert))
                     }
                     if (data.unreadNotificationsCount > 0) {
                         OutlinedButton(
@@ -134,7 +136,7 @@ fun NotificationsScreen(
                         ) {
                             Icon(Icons.Rounded.DoneAll, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Mark All Read (${data.unreadNotificationsCount})")
+                            Text(stringResource(R.string.btn_mark_all_read_count, data.unreadNotificationsCount))
                         }
                     }
                 }
@@ -145,8 +147,8 @@ fun NotificationsScreen(
             item {
                 EmptyStatePanel(
                     icon = Icons.Rounded.NotificationsOff,
-                    title = "No Notifications Yet",
-                    subtitle = "Tap Test Alert above to test real-time notification delivery."
+                    title = stringResource(R.string.empty_notifications_title),
+                    subtitle = stringResource(R.string.empty_notifications_subtitle)
                 )
             }
         } else {
@@ -169,11 +171,11 @@ fun NotificationsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        StatusPill(label = notif.category.label, tone = tone)
+                        StatusPill(label = stringResource(notif.category.labelRes), tone = tone)
                         TextButton(onClick = { onToggleRead(notif.id, !notif.isRead) }) {
                             Icon(Icons.Rounded.MarkEmailRead, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (notif.isRead) "Mark Unread" else "Mark Read")
+                            Text(stringResource(if (notif.isRead) R.string.btn_mark_unread else R.string.btn_mark_read))
                         }
                     }
                     Text(notif.title, style = MaterialTheme.typography.titleMedium, color = Slate900)

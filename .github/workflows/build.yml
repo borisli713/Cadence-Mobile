@@ -90,8 +90,8 @@ jobs:
               if m:
                   versions.append(tuple(int(x) for x in m.groups()))
 
-          if not versions or max(versions) < (1, 1, 6):
-              next_ver = "1.1.6"
+          if not versions or max(versions) < (1, 2, 0):
+              next_ver = "1.2.0"
           else:
               major, minor, patch = max(versions)
               next_ver = f"{major}.{minor}.{patch + 1}"

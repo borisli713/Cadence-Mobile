@@ -6,7 +6,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.core.content.pm.PackageInfoCompat
+import com.cadence.shifts.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,10 +18,10 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
-enum class InstallSource(val label: String) {
-    FDROID("F-Droid"),
-    GITHUB("GitHub"),
-    DIRECT_OR_UNKNOWN("Direct APK")
+enum class InstallSource(val label: String, @StringRes val labelRes: Int) {
+    FDROID("F-Droid", R.string.install_source_fdroid),
+    GITHUB("GitHub", R.string.install_source_github),
+    DIRECT_OR_UNKNOWN("Direct APK", R.string.install_source_direct)
 }
 
 data class AppVersionInfo(

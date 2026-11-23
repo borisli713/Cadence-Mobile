@@ -55,9 +55,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.annotation.StringRes
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.cadence.shifts.R
 import com.cadence.shifts.data.model.ScheduleChangeType
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.model.ShiftStatus
@@ -84,11 +87,11 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class MyScheduleFilter(val label: String, val tag: String) {
-    UPCOMING("Upcoming", "my_schedule_filter_upcoming"),
-    ALL("All Assigned", "my_schedule_filter_all"),
-    PENDING_CHANGE("Pending Change", "my_schedule_filter_pending"),
-    COMPLETED("Completed", "my_schedule_filter_completed")
+private enum class MyScheduleFilter(@StringRes val labelRes: Int, val tag: String) {
+    UPCOMING(R.string.filter_upcoming, "my_schedule_filter_upcoming"),
+    ALL(R.string.filter_all_assigned, "my_schedule_filter_all"),
+    PENDING_CHANGE(R.string.status_pending_change, "my_schedule_filter_pending"),
+    COMPLETED(R.string.status_completed, "my_schedule_filter_completed")
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -173,7 +176,7 @@ fun MyScheduleScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "My Assigned Schedule",
+                                text = stringResource(R.string.my_schedule_title),
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = Slate900
                             )
@@ -195,12 +198,12 @@ fun MyScheduleScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Sync,
-                                    contentDescription = "Synced with Web App",
+                                    contentDescription = stringResource(R.string.synced_with_web),
                                     tint = Blue700,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "Live Sync",
+                                    text = stringResource(R.string.live_sync),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Blue700
                                 )
@@ -224,7 +227,7 @@ fun MyScheduleScreen(
                     ) {
                         Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Export My .ics")
+                        Text(stringResource(R.string.export_my_ics))
                     }
 
                     OutlinedButton(
@@ -233,7 +236,7 @@ fun MyScheduleScreen(
                     ) {
                         Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Full Team Schedule")
+                        Text(stringResource(R.string.full_team_schedule))
                     }
                 }
             }
@@ -242,9 +245,7 @@ fun MyScheduleScreen(
         // Next Upcoming Shift Spotlight
         nextShift?.let { next ->
             item {
-                val relativeBadge = remember(next.date, todayIso) {
-                    computeRelativeDayBadge(next.date, todayIso)
-                }
+                val relativeBadge = relativeDayBadge(next.date, todayIso)
                 CadenceCard(
                     containerColor = PureWhite,
                     borderColor = Blue700.copy(alpha = 0.35f),
@@ -268,7 +269,7 @@ fun MyScheduleScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Next Upcoming Shift",
+                                text = stringResource(R.string.next_upcoming_shift),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = Blue700
                             )
@@ -282,7 +283,14 @@ fun MyScheduleScreen(
                         color = Slate900
                     )
                     Text(
-                        text = "${formatShiftDayLabel(next.date)}  •  ${next.startTime}–${next.endTime} (${FairnessEngine.formatHours(next.durationHours)}h)  •  ${next.department}",
+                        text = stringResource(
+                            R.string.next_shift_meta_format,
+                            formatShiftDayLabel(next.date),
+                            next.startTime,
+                            next.endTime,
+                            FairnessEngine.formatHours(next.durationHours),
+                            next.department
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate600
                     )
@@ -298,7 +306,7 @@ fun MyScheduleScreen(
                         ) {
                             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Request Change")
+                            Text(stringResource(R.string.btn_request_change))
                         }
                         OutlinedButton(
                             onClick = {
@@ -309,7 +317,7 @@ fun MyScheduleScreen(
                         ) {
                             Icon(Icons.Rounded.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Google Calendar")
+                            Text(stringResource(R.string.btn_google_calendar))
                         }
                     }
                 }
@@ -323,17 +331,17 @@ fun MyScheduleScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 KpiTile(
-                    title = "Upcoming Shifts",
+                    title = stringResource(R.string.kpi_upcoming_shifts),
                     value = "${upcomingShifts.size}",
-                    subtitle = "${FairnessEngine.formatHours(upcomingHours)}h assigned",
+                    subtitle = stringResource(R.string.hours_assigned_format, FairnessEngine.formatHours(upcomingHours)),
                     icon = Icons.Rounded.Schedule,
                     tone = BadgeTone.INFO,
                     modifier = Modifier.weight(1f)
                 )
                 KpiTile(
-                    title = "Completed Shifts",
+                    title = stringResource(R.string.kpi_completed_shifts),
                     value = "${completedShifts.size}",
-                    subtitle = "${FairnessEngine.formatHours(completedHours)}h worked",
+                    subtitle = stringResource(R.string.hours_worked_format, FairnessEngine.formatHours(completedHours)),
                     icon = Icons.Rounded.CheckCircle,
                     tone = BadgeTone.SUCCESS,
                     modifier = Modifier.weight(1f)
@@ -347,7 +355,7 @@ fun MyScheduleScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Search assigned shifts, department, or date") },
+                    label = { Text(stringResource(R.string.search_my_shifts_label)) },
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     trailingIcon = {
                         AnimatedVisibility(
@@ -356,7 +364,7 @@ fun MyScheduleScreen(
                             exit = fadeOut()
                         ) {
                             IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Rounded.Clear, contentDescription = "Clear search")
+                                Icon(Icons.Rounded.Clear, contentDescription = stringResource(R.string.clear_search))
                             }
                         }
                     },
@@ -377,7 +385,7 @@ fun MyScheduleScreen(
                         FilterChip(
                             selected = filter == option,
                             onClick = { filter = option },
-                            label = { Text("${option.label} ($count)") },
+                            label = { Text(stringResource(R.string.filter_count_format, stringResource(option.labelRes), count)) },
                             modifier = Modifier.testTag(option.tag)
                         )
                     }
@@ -390,14 +398,14 @@ fun MyScheduleScreen(
                 EmptyStatePanel(
                     icon = Icons.Rounded.EventAvailable,
                     title = if (myShifts.isEmpty()) {
-                        "No Shifts Assigned Yet"
+                        stringResource(R.string.empty_my_schedule_none_title)
                     } else {
-                        "No Assigned Shifts Match Filter"
+                        stringResource(R.string.empty_my_schedule_filtered_title)
                     },
                     subtitle = if (myShifts.isEmpty()) {
-                        "Shifts assigned to you on the Web App or Android appear here in real time. Tap Full Team Schedule to submit availability."
+                        stringResource(R.string.empty_my_schedule_none_subtitle)
                     } else {
-                        "Try switching to All Assigned or clearing your search query."
+                        stringResource(R.string.empty_my_schedule_filtered_subtitle)
                     }
                 )
             }
@@ -480,7 +488,7 @@ private fun AssignedShiftCard(
         else -> Slate200
     }
     val dayLabel = remember(shift.date) { formatShiftDayLabel(shift.date) }
-    val relBadge = remember(shift.date, todayIso) { computeRelativeDayBadge(shift.date, todayIso) }
+    val relBadge = relativeDayBadge(shift.date, todayIso)
 
     CadenceCard(
         borderColor = borderColor,
@@ -499,12 +507,12 @@ private fun AssignedShiftCard(
             ) {
                 Text(shift.title, style = MaterialTheme.typography.titleMedium, color = Slate900)
                 Text(
-                    text = "$dayLabel ($relBadge) • ${shift.department}",
+                    text = stringResource(R.string.day_badge_format, dayLabel, relBadge, shift.department),
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600
                 )
             }
-            StatusPill(label = shift.status.label, tone = statusTone)
+            StatusPill(label = stringResource(shift.status.labelRes), tone = statusTone)
         }
 
         Surface(
@@ -524,7 +532,7 @@ private fun AssignedShiftCard(
                     color = Slate900
                 )
                 Text(
-                    text = "${FairnessEngine.formatHours(shift.durationHours)} hours",
+                    text = stringResource(R.string.duration_hours_format, FairnessEngine.formatHours(shift.durationHours)),
                     style = MaterialTheme.typography.labelMedium,
                     color = Blue700
                 )
@@ -548,7 +556,7 @@ private fun AssignedShiftCard(
             OutlinedButton(onClick = onAddToCalendar) {
                 Icon(Icons.Rounded.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Calendar")
+                Text(stringResource(R.string.btn_calendar))
             }
 
             if (shift.status != ShiftStatus.COMPLETED) {
@@ -558,7 +566,7 @@ private fun AssignedShiftCard(
                 ) {
                     Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Request Change")
+                    Text(stringResource(R.string.btn_request_change))
                 }
 
                 OutlinedButton(
@@ -567,7 +575,7 @@ private fun AssignedShiftCard(
                 ) {
                     Icon(Icons.Rounded.Assignment, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Log Report")
+                    Text(stringResource(R.string.btn_log_report))
                 }
             }
         }
@@ -581,17 +589,22 @@ internal fun formatShiftDayLabel(isoDate: String): String =
         parsed.format(fmt)
     }.getOrDefault(isoDate)
 
-private fun computeRelativeDayBadge(isoDate: String, todayIso: String): String =
-    runCatching {
-        val shiftDate = LocalDate.parse(isoDate, DateTimeFormatter.ISO_LOCAL_DATE)
-        val today = LocalDate.parse(todayIso, DateTimeFormatter.ISO_LOCAL_DATE)
-        when {
-            shiftDate == today -> "Today"
-            shiftDate == today.plusDays(1) -> "Tomorrow"
-            shiftDate.isBefore(today) -> "Past"
-            else -> {
-                val days = java.time.temporal.ChronoUnit.DAYS.between(today, shiftDate)
-                "In ${days}d"
-            }
+@Composable
+private fun relativeDayBadge(isoDate: String, todayIso: String): String {
+    val parsedShift = remember(isoDate) {
+        runCatching { LocalDate.parse(isoDate, DateTimeFormatter.ISO_LOCAL_DATE) }.getOrNull()
+    }
+    val parsedToday = remember(todayIso) {
+        runCatching { LocalDate.parse(todayIso, DateTimeFormatter.ISO_LOCAL_DATE) }.getOrNull()
+    }
+    if (parsedShift == null || parsedToday == null) return isoDate
+    return when {
+        parsedShift == parsedToday -> stringResource(R.string.rel_today)
+        parsedShift == parsedToday.plusDays(1) -> stringResource(R.string.rel_tomorrow)
+        parsedShift.isBefore(parsedToday) -> stringResource(R.string.rel_past)
+        else -> {
+            val days = java.time.temporal.ChronoUnit.DAYS.between(parsedToday, parsedShift)
+            stringResource(R.string.rel_in_days_format, days)
         }
-    }.getOrDefault(isoDate)
+    }
+}
