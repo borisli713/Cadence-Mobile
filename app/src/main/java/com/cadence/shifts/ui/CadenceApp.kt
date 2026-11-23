@@ -96,6 +96,7 @@ import com.cadence.shifts.R
 import com.cadence.shifts.data.model.Shift
 import com.cadence.shifts.data.repository.CadenceRepository
 import com.cadence.shifts.notifications.BackgroundSyncScheduler
+import com.cadence.shifts.notifications.RealtimeAlertMonitor
 import com.cadence.shifts.ui.auth.AuthScreen
 import com.cadence.shifts.ui.components.CadenceCard
 import com.cadence.shifts.ui.components.PlatformLinksCard
@@ -206,6 +207,8 @@ fun CadenceApp(
     LaunchedEffect(user, isVerified) {
         if (user == null || !isVerified) {
             BackgroundSyncScheduler.stopBackgroundSync(context)
+        } else {
+            RealtimeAlertMonitor.startOrUpdate(context)
         }
     }
 
@@ -381,40 +384,9 @@ private fun WorkspaceRoot(
         viewModel.clearBanner()
     }
 
-    LaunchedEffect(workspaceData) {
-        val liveData = workspaceData ?: return@LaunchedEffect
-        val alerts = NotificationHelper.filterUnnotifiedAlerts(
-            context = context,
-            uid = liveData.profile.uid,
-            notifications = liveData.notifications,
-            pushEnabled = liveData.profile.pushNotificationsEnabled
-        )
-        if (alerts.isNotEmpty()) {
-            NotificationHelper.dispatchNotificationsSequentially(context, alerts)
-            val latest = alerts.first()
-            viewModel.showBanner("${latest.title}: ${latest.message}")
-        }
-
-        if (liveData.isManager) {
-            val managerPayloads = NotificationHelper.buildManagerWorkPayloads(
-                managerUid = liveData.profile.uid,
-                scheduleChanges = liveData.scheduleChanges,
-                timeOffRequests = liveData.timeOffRequests,
-                shiftReports = liveData.shiftReports
-            )
-            val mgrAlerts = NotificationHelper.filterNewManagerWorkAlerts(
-                context = context,
-                uid = liveData.profile.uid,
-                items = managerPayloads,
-                pushEnabled = liveData.profile.pushNotificationsEnabled
-            )
-            if (mgrAlerts.isNotEmpty()) {
-                NotificationHelper.dispatchManagerPayloadsSequentially(context, mgrAlerts)
-                if (alerts.isEmpty()) {
-                    val latest = mgrAlerts.first()
-                    viewModel.showBanner("${latest.title}: ${latest.message}")
-                }
-            }
+    LaunchedEffect(viewModel) {
+        RealtimeAlertMonitor.incomingBannerEvents.collect { message ->
+            viewModel.showBanner(message)
         }
     }
 

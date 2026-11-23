@@ -25,8 +25,8 @@ object BackgroundSyncScheduler {
     private const val PERIODIC_WORK_NAME = "cadence_notif_periodic_sync"
     private const val IMMEDIATE_WORK_NAME = "cadence_notif_immediate_sync"
     private const val ALARM_REQUEST_CODE = 4105
-    private const val UNRESTRICTED_POLL_INTERVAL_MS = 2 * 60 * 1000L
-    private const val RESTRICTED_POLL_INTERVAL_MS = 10 * 60 * 1000L
+    private const val UNRESTRICTED_POLL_INTERVAL_MS = 60_000L
+    private const val RESTRICTED_POLL_INTERVAL_MS = 5 * 60 * 1000L
 
     fun ensureBackgroundSync(
         context: Context,
@@ -42,6 +42,7 @@ object BackgroundSyncScheduler {
             return
         }
 
+        RealtimeAlertMonitor.startOrUpdate(appContext)
         schedulePeriodicWork(appContext)
         if (NotificationHelper.hasNotificationPermission(appContext)) {
             scheduleNextBackgroundAlarm(appContext, replaceExisting = false)
@@ -158,6 +159,7 @@ object BackgroundSyncScheduler {
 
     fun stopBackgroundSync(context: Context) {
         val appContext = context.applicationContext
+        RealtimeAlertMonitor.stop()
         cancelScheduledSyncAlarm(appContext)
         NotificationHelper.clearPersistentSyncNotification(appContext)
         runCatching {

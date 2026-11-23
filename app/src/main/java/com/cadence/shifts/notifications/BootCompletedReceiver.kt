@@ -8,8 +8,8 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 
 /**
- * Re-schedules silent background notification sync after device reboot or app update without
- * showing a persistent ongoing notification or requiring the user to open Cadence first.
+ * Re-schedules silent background notification sync and starts [RealtimeAlertMonitor] after
+ * device reboot or app update without showing a persistent ongoing notification.
  */
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -26,6 +26,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
             return
         }
 
+        RealtimeAlertMonitor.startOrUpdate(appContext)
         BackgroundSyncScheduler.schedulePeriodicWork(appContext)
         BackgroundSyncScheduler.enqueueImmediateSync(appContext)
         BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, replaceExisting = true)
