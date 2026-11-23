@@ -291,10 +291,10 @@ object NotificationHelper {
         // or when read/outside initial window — never discard unread notifications while paused.
         val editor = prefs.edit().putBoolean(initKey, true)
         if (pushEnabled) {
-            val combined = seenList + mine.map { it.id }
+            val combined = seenList + mine.asReversed().map { it.id }
             writeSeenList(editor, seenListKey, combined)
         } else if (!wasInitialized) {
-            val baselineOnly = seenList + mine.filter { it.isRead }.map { it.id }
+            val baselineOnly = seenList + mine.filter { it.isRead }.asReversed().map { it.id }
             writeSeenList(editor, seenListKey, baselineOnly)
         }
         editor.commit()

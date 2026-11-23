@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.work.BackoffPolicy
@@ -12,6 +13,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.cadence.shifts.util.BatteryOptimizationHelper
@@ -22,11 +24,30 @@ import java.util.concurrent.TimeUnit
 
 object BackgroundSyncScheduler {
     private const val TAG = "BgSyncScheduler"
+    private const val PREFS_NAME = "cadence_bg_sync_prefs"
+    private const val KEY_PUSH_ENABLED = "push_enabled"
+    private const val KEY_LAST_ALARM_SET_WALL_MS = "last_alarm_set_wall_ms"
+    private const val KEY_NEXT_ALARM_WALL_MS = "next_alarm_wall_ms"
     private const val PERIODIC_WORK_NAME = "cadence_notif_periodic_sync"
     private const val IMMEDIATE_WORK_NAME = "cadence_notif_immediate_sync"
     private const val ALARM_REQUEST_CODE = 4105
-    private const val UNRESTRICTED_POLL_INTERVAL_MS = 60_000L
+    private const val UNRESTRICTED_POLL_INTERVAL_MS = 30_000L
     private const val RESTRICTED_POLL_INTERVAL_MS = 5 * 60 * 1000L
+    private const val ALARM_RESCHEDULE_DEBOUNCE_MS = 10_000L
+
+    fun restoreFromPersistedSession(context: Context) {
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val pushEnabled = prefs.getBoolean(KEY_PUSH_ENABLED, true)
+        val user = Firebase.auth.currentUser
+        if (pushEnabled && user != null && user.isEmailVerified) {
+            RealtimeAlertMonitor.startOrUpdate(appContext)
+            schedulePeriodicWork(appContext)
+            if (NotificationHelper.hasNotificationPermission(appContext)) {
+                scheduleNextBackgroundAlarm(appContext, forceReschedule = false)
+            }
+        }
+    }
 
     fun ensureBackgroundSync(
         context: Context,
@@ -35,6 +56,10 @@ object BackgroundSyncScheduler {
         val appContext = context.applicationContext
         NotificationHelper.ensureChannel(appContext)
         NotificationHelper.clearPersistentSyncNotification(appContext)
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_PUSH_ENABLED, pushEnabled)
+            .apply()
 
         val user = Firebase.auth.currentUser
         if (!pushEnabled || user == null || !user.isEmailVerified) {
@@ -45,7 +70,7 @@ object BackgroundSyncScheduler {
         RealtimeAlertMonitor.startOrUpdate(appContext)
         schedulePeriodicWork(appContext)
         if (NotificationHelper.hasNotificationPermission(appContext)) {
-            scheduleNextBackgroundAlarm(appContext, replaceExisting = false)
+            scheduleNextBackgroundAlarm(appContext, forceReschedule = false)
         } else {
             cancelScheduledSyncAlarm(appContext)
         }
@@ -81,15 +106,18 @@ object BackgroundSyncScheduler {
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val oneTimeRequest = OneTimeWorkRequestBuilder<NotificationSyncWorker>()
+        val builder = OneTimeWorkRequestBuilder<NotificationSyncWorker>()
             .setConstraints(constraints)
-            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        }
 
         runCatching {
             WorkManager.getInstance(appContext).enqueueUniqueWork(
                 IMMEDIATE_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
-                oneTimeRequest
+                builder.build()
             )
         }.onFailure { error ->
             Log.w(TAG, "Failed to enqueue immediate notification sync: ${error.message}")
@@ -98,7 +126,7 @@ object BackgroundSyncScheduler {
 
     fun scheduleNextBackgroundAlarm(
         context: Context,
-        replaceExisting: Boolean = true
+        forceReschedule: Boolean = true
     ) {
         val appContext = context.applicationContext
         val user = Firebase.auth.currentUser
@@ -107,20 +135,24 @@ object BackgroundSyncScheduler {
             return
         }
 
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_PUSH_ENABLED, true)) {
+            cancelScheduledSyncAlarm(appContext)
+            return
+        }
+
+        val nowWall = System.currentTimeMillis()
+        if (!forceReschedule) {
+            val nextScheduledWall = prefs.getLong(KEY_NEXT_ALARM_WALL_MS, 0L)
+            val lastSetWall = prefs.getLong(KEY_LAST_ALARM_SET_WALL_MS, 0L)
+            if (nextScheduledWall > nowWall + 5_000L && (nowWall - lastSetWall) < ALARM_RESCHEDULE_DEBOUNCE_MS) {
+                return
+            }
+        }
+
         runCatching {
             val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val syncIntent = Intent(appContext, ServiceRestartReceiver::class.java)
-
-            if (!replaceExisting) {
-                val existing = PendingIntent.getBroadcast(
-                    appContext,
-                    ALARM_REQUEST_CODE,
-                    syncIntent,
-                    PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-                )
-                if (existing != null) return
-            }
-
             val pendingIntent = PendingIntent.getBroadcast(
                 appContext,
                 ALARM_REQUEST_CODE,
@@ -137,12 +169,21 @@ object BackgroundSyncScheduler {
                 SystemClock.elapsedRealtime() + delayMs,
                 pendingIntent
             )
+            prefs.edit()
+                .putLong(KEY_LAST_ALARM_SET_WALL_MS, nowWall)
+                .putLong(KEY_NEXT_ALARM_WALL_MS, nowWall + delayMs)
+                .apply()
         }.onFailure { error ->
             Log.w(TAG, "Failed to schedule silent background sync alarm: ${error.message}")
         }
     }
 
     private fun cancelScheduledSyncAlarm(appContext: Context) {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_NEXT_ALARM_WALL_MS)
+            .remove(KEY_LAST_ALARM_SET_WALL_MS)
+            .apply()
         runCatching {
             val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val syncIntent = Intent(appContext, ServiceRestartReceiver::class.java)

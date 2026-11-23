@@ -31,7 +31,7 @@ class NotificationSyncWorker(
         return try {
             val keepRunning = RealtimeAlertMonitor.pollServerOnce(applicationContext)
             if (keepRunning) {
-                BackgroundSyncScheduler.scheduleNextBackgroundAlarm(applicationContext, replaceExisting = true)
+                BackgroundSyncScheduler.scheduleNextBackgroundAlarm(applicationContext, forceReschedule = true)
             }
             Result.success()
         } catch (e: CancellationException) {

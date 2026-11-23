@@ -29,6 +29,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
         RealtimeAlertMonitor.startOrUpdate(appContext)
         BackgroundSyncScheduler.schedulePeriodicWork(appContext)
         BackgroundSyncScheduler.enqueueImmediateSync(appContext)
-        BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, replaceExisting = true)
+        BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, forceReschedule = true)
     }
 }

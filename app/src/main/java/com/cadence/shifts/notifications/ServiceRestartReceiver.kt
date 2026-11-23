@@ -35,12 +35,12 @@ class ServiceRestartReceiver : BroadcastReceiver() {
                 }
                 completed = polled != null
                 if (polled != false) {
-                    BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, replaceExisting = true)
+                    BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, forceReschedule = true)
                 }
             } finally {
                 if (!completed) {
                     BackgroundSyncScheduler.enqueueImmediateSync(appContext)
-                    BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, replaceExisting = true)
+                    BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, forceReschedule = true)
                 }
                 pendingResult.finish()
             }
@@ -48,7 +48,7 @@ class ServiceRestartReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        private const val POLL_TIMEOUT_MS = 6_500L
+        private const val POLL_TIMEOUT_MS = 9_000L
         private val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }

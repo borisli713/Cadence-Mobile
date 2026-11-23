@@ -31,6 +31,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -243,12 +245,15 @@ object RealtimeAlertMonitor {
      * Queries Firestore directly from server (with cache fallback) for any unread alerts or
      * incoming manager work items, used by WorkManager, AlarmManager wakeups, and network reconnects.
      */
-    suspend fun pollServerOnce(context: Context): Boolean {
+    suspend fun pollServerOnce(context: Context): Boolean = coroutineScope {
         val appContext = context.applicationContext
-        val currentUser = Firebase.auth.currentUser
-        if (currentUser == null || !currentUser.isEmailVerified) {
-            return true
+        val currentUser = Firebase.auth.currentUser ?: return@coroutineScope true
+        if (!currentUser.isEmailVerified) {
+            return@coroutineScope true
         }
+
+        // Ensure fresh Firebase Auth token on cold background wakeups
+        runCatching { currentUser.getIdToken(false).await() }
 
         val uid = currentUser.uid
         val email = currentUser.email.orEmpty()
@@ -257,48 +262,55 @@ object RealtimeAlertMonitor {
         val databaseId = appContext.getString(R.string.firestore_database_id)
         val db = FirebaseFirestore.getInstance(databaseId)
 
-        val profileSnap = getDocServerOrCache(db.collection("users").document(uid))
-        val managerSnap = runCatching { getDocServerOrCache(db.collection("managers").document(uid)) }.getOrNull()
+        val profileDeferred = async {
+            getDocServerOrCache(db.collection("users").document(uid))
+        }
+        val managerDeferred = async {
+            runCatching { getDocServerOrCache(db.collection("managers").document(uid)) }.getOrNull()
+        }
+        val alertsDeferred = async {
+            queryServerOrCache(db.collection("notifications").whereEqualTo("recipientUid", uid))
+        }
+
+        val profileSnap = profileDeferred.await()
         val profile = profileSnap.toUserProfile()
         val pushEnabled = profile?.pushNotificationsEnabled ?: true
         if (!pushEnabled) {
             BackgroundSyncScheduler.stopBackgroundSync(appContext)
             stop()
-            return false
+            return@coroutineScope false
         }
 
-        val isManager = isBootstrapAdmin || managerSnap?.exists() == true || profile?.role == UserRole.MANAGER
-
-        val alertsSnap = queryServerOrCache(
-            db.collection("notifications").whereEqualTo("recipientUid", uid)
-        )
+        val alertsSnap = alertsDeferred.await()
         val records = alertsSnap.documents
             .mapNotNull { it.toPushNotification() }
             .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
         processPersonalAlerts(appContext, uid, records, pushEnabled = true)
 
+        val managerSnap = managerDeferred.await()
+        val isManager = isBootstrapAdmin || managerSnap?.exists() == true || profile?.role == UserRole.MANAGER
         if (isManager) {
-            val chgSnap = queryServerOrCache(
-                db.collection("scheduleChanges").whereEqualTo("status", "pending")
-            )
-            val toSnap = queryServerOrCache(
-                db.collection("timeOffRequests").whereEqualTo("status", "pending")
-            )
-            val repSnap = queryServerOrCache(
-                db.collection("shiftReports").whereEqualTo("status", "submitted")
-            )
+            val chgDeferred = async {
+                queryServerOrCache(db.collection("scheduleChanges").whereEqualTo("status", "pending"))
+            }
+            val toDeferred = async {
+                queryServerOrCache(db.collection("timeOffRequests").whereEqualTo("status", "pending"))
+            }
+            val repDeferred = async {
+                queryServerOrCache(db.collection("shiftReports").whereEqualTo("status", "submitted"))
+            }
             val payloads = NotificationHelper.buildManagerWorkPayloads(
                 managerUid = uid,
-                scheduleChanges = chgSnap.documents.mapNotNull { it.toScheduleChangeRequest() },
-                timeOffRequests = toSnap.documents.mapNotNull { it.toTimeOffRequest() },
-                shiftReports = repSnap.documents.mapNotNull { it.toShiftReport() }
+                scheduleChanges = chgDeferred.await().documents.mapNotNull { it.toScheduleChangeRequest() },
+                timeOffRequests = toDeferred.await().documents.mapNotNull { it.toTimeOffRequest() },
+                shiftReports = repDeferred.await().documents.mapNotNull { it.toShiftReport() }
             )
             processManagerWork(appContext, uid, payloads, pushEnabled = true)
         }
 
         // Keep live listener open for as long as the OS lets this process remain resident
         startOrUpdate(appContext)
-        return true
+        true
     }
 
     private suspend fun processPersonalAlerts(
