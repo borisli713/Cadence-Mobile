@@ -1,6 +1,9 @@
 package com.cadence.shifts.util
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 import android.os.PowerManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -160,5 +163,26 @@ class BackgroundNotificationPolicyTest {
             pushEnabled = true
         )
         assertTrue(repeat.isEmpty())
+    }
+
+    @Test
+    fun ensureChannel_removesLegacyPersistentSyncChannelAndKeepsAlertChannel() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel("cadence_bg_sync", "Background Shift Sync", NotificationManager.IMPORTANCE_MIN)
+            )
+            assertTrue(manager.getNotificationChannel("cadence_bg_sync") != null)
+        }
+
+        NotificationHelper.ensureChannel(context)
+        NotificationHelper.clearPersistentSyncNotification(context)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            assertTrue(manager.getNotificationChannel("cadence_bg_sync") == null)
+            assertTrue(manager.getNotificationChannel("cadence_shift_alerts") != null)
+        }
     }
 }

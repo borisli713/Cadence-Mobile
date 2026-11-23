@@ -1,7 +1,6 @@
 package com.cadence.shifts.util
 
 import android.Manifest
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -33,8 +32,7 @@ data class PendingAlertPayload(
 object NotificationHelper {
     private const val CHANNEL_ID = "cadence_shift_alerts"
     private const val CHANNEL_NAME = "Shift & Approval Alerts"
-    private const val SYNC_CHANNEL_ID = "cadence_bg_sync"
-    private const val SYNC_CHANNEL_NAME = "Background Shift Sync"
+    private const val LEGACY_SYNC_CHANNEL_ID = "cadence_bg_sync"
     private const val ALERT_GROUP_KEY = "cadence_shift_alerts_group"
 
     private const val PREFS_NAME = "cadence_alert_prefs"
@@ -67,40 +65,23 @@ object NotificationHelper {
                 enableVibration(true)
             }
             manager.createNotificationChannel(alertsChannel)
-
-            val syncChannel = NotificationChannel(
-                SYNC_CHANNEL_ID,
-                SYNC_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_MIN
-            ).apply {
-                description = "Keeps live shift and approval alerts synced in the background."
-                setShowBadge(false)
-            }
-            manager.createNotificationChannel(syncChannel)
+            manager.deleteNotificationChannel(LEGACY_SYNC_CHANNEL_ID)
+        }
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(SYNC_NOTIFICATION_ID)
         }
     }
 
-    fun buildBackgroundSyncNotification(context: Context): Notification {
-        ensureChannel(context)
-        val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_OPEN_TAB, TAB_NOTIFICATIONS)
+    fun clearPersistentSyncNotification(context: Context) {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(SYNC_NOTIFICATION_ID)
         }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            SYNC_NOTIFICATION_ID,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(context, SYNC_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Cadence live alerts active")
-            .setContentText("Listening for shift assignments and approval updates")
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setOngoing(true)
-            .setSilent(true)
-            .setContentIntent(pendingIntent)
-            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                manager?.deleteNotificationChannel(LEGACY_SYNC_CHANNEL_ID)
+            }
+        }
     }
 
     fun hasNotificationPermission(context: Context): Boolean {

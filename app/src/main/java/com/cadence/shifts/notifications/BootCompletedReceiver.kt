@@ -3,13 +3,13 @@ package com.cadence.shifts.notifications
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.cadence.shifts.util.BatteryOptimizationHelper
+import com.cadence.shifts.util.NotificationHelper
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 
 /**
- * Re-schedules background notification sync after device reboot or app update without
- * relying on the user opening Cadence first.
+ * Re-schedules silent background notification sync after device reboot or app update without
+ * showing a persistent ongoing notification or requiring the user to open Cadence first.
  */
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -18,17 +18,16 @@ class BootCompletedReceiver : BroadcastReceiver() {
             return
         }
 
+        val appContext = context.applicationContext
+        NotificationHelper.clearPersistentSyncNotification(appContext)
+
         val currentUser = Firebase.auth.currentUser
         if (currentUser == null || !currentUser.isEmailVerified) {
             return
         }
 
-        val appContext = context.applicationContext
         BackgroundSyncScheduler.schedulePeriodicWork(appContext)
         BackgroundSyncScheduler.enqueueImmediateSync(appContext)
-
-        if (BatteryOptimizationHelper.isUnrestrictedBattery(appContext)) {
-            BackgroundSyncScheduler.tryStartRealtimeService(appContext)
-        }
+        BackgroundSyncScheduler.scheduleNextBackgroundAlarm(appContext, replaceExisting = true)
     }
 }

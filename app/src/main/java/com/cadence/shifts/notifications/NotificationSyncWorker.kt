@@ -12,7 +12,6 @@ import com.cadence.shifts.data.firebase.toTimeOffRequest
 import com.cadence.shifts.data.firebase.toUserProfile
 import com.cadence.shifts.data.model.UserRole
 import com.cadence.shifts.data.repository.CadenceRepository
-import com.cadence.shifts.util.BatteryOptimizationHelper
 import com.cadence.shifts.util.NotificationHelper
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -102,10 +101,7 @@ class NotificationSyncWorker(
                 NotificationHelper.dispatchManagerPayloadsSequentially(applicationContext, newMgrAlerts)
             }
 
-            // If user granted unrestricted battery usage, keep the real-time listener active
-            if (BatteryOptimizationHelper.isUnrestrictedBattery(applicationContext)) {
-                BackgroundSyncScheduler.tryStartRealtimeService(applicationContext)
-            }
+            BackgroundSyncScheduler.scheduleNextBackgroundAlarm(applicationContext, replaceExisting = true)
 
             Result.success()
         } catch (e: CancellationException) {
